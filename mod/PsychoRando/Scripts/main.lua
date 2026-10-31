@@ -3,7 +3,7 @@
 package.path = ".\\Mods\\PsychoRando\\Scripts\\?.lua;" .. package.path
 
 local U = require("util")
-local VERSION = "0.1.6"
+local VERSION = "0.1.7"
 U.log("PsychoRando %s loading", VERSION)
 U.writeAll(U.ROOT .. "data/mod_version.txt", VERSION)
 

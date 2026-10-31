@@ -96,6 +96,9 @@ legend{font:800 17px var(--head);margin-bottom:6px}
 pre.spoiler{white-space:pre-wrap;background:#1A0F2B;border-radius:var(--r-sm);padding:14px;max-height:420px;overflow:auto;font:13px/1.45 Consolas, monospace}
 .err{color:var(--warn);font-weight:700}
 .hidden{display:none!important}
+details.adv{margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 14px;max-width:72ch}
+details.adv summary{cursor:pointer;color:var(--muted)}
+details.adv[open] summary{margin-bottom:8px}
 @media (max-width:820px){.slots{grid-template-columns:1fr}.step{grid-template-columns:1fr}.num{margin-bottom:-6px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -127,23 +130,28 @@ pre.spoiler{white-space:pre-wrap;background:#1A0F2B;border-radius:var(--r-sm);pa
     </div>
   </section>
 
-  <section class="step" id="s2">
+  <section class="step done" id="s2">
     <div class="num">2</div>
     <div>
-      <h2>Scan the game's collectibles</h2>
-      <p class="lead">A one-time step. The mod opens every level inside the game and lists each figment, card, vault and the rest. Start the scan and keep the game on the main menu until it finishes (usually a few minutes). The game can already be running.</p>
-      <div class="row">
-        <button class="btn primary" id="scanStart">Start scan</button>
-        <button class="btn" id="launch">Launch Psychonauts 2</button>
-        <button class="btn hidden" id="scanCancel">Cancel scan</button>
-        <button class="btn hidden" id="scanFresh">Rescan from scratch</button>
-        <button class="btn hidden" id="exportBtn">Export collectibles list</button>
-      </div>
-      <div id="scanBox" class="hidden">
-        <div class="bar"><i id="scanBar"></i></div>
-        <p class="hint" id="scanText"></p>
-      </div>
+      <h2>Collectibles</h2>
+      <p class="lead" id="dataLead">Every collectible in the game is built into PsychoRando, so there's nothing to scan.</p>
       <div id="scanSummary"></div>
+      <div class="row"><button class="btn hidden" id="exportBtn">Export collectibles list</button></div>
+      <details class="adv">
+        <summary>Rescan the game (only needed after a game update)</summary>
+        <p class="hint">The mod opens every level inside the game and rebuilds the list. Start it, then keep the game on the title screen for about a minute.</p>
+        <div class="row">
+          <button class="btn" id="scanStart">Start scan</button>
+          <button class="btn" id="launch">Launch Psychonauts 2</button>
+          <button class="btn hidden" id="scanCancel">Cancel scan</button>
+          <button class="btn hidden" id="scanFresh">Rescan from scratch</button>
+        </div>
+        <div id="scanBox" class="hidden">
+          <div class="bar"><i id="scanBar"></i></div>
+          <p class="hint" id="scanText"></p>
+        </div>
+        <div id="scanNote"></div>
+      </details>
     </div>
   </section>
 
@@ -252,10 +260,10 @@ function renderCats(){
 function renderScan(){
   const sc = state.scan, st = sc.status || {};
   const running = sc.requested && !sc.done && st.state!=='failed';
-  $('#scanBox').classList.toggle('hidden', !running && st.state!=='scanning');
+  $('#scanBox').classList.toggle('hidden', !running);
   $('#scanCancel').classList.toggle('hidden', !running);
   $('#scanFresh').classList.toggle('hidden', !sc.hasData);
-  $('#scanStart').textContent = sc.hasData && !sc.done ? 'Resume scan' : (sc.done ? 'Scan again' : 'Start scan');
+  $('#scanStart').textContent = sc.hasData && !sc.done ? 'Resume scan' : 'Start scan';
   if(running){
     if(st.state==='scanning'){
       const pct = st.total ? Math.round(100*st.index/st.total) : 0;
@@ -263,29 +271,28 @@ function renderScan(){
       $('#scanText').textContent = `Scanning level ${st.index} of ${st.total}: ${String(st.current||'').split('/').pop()} · ${st.locations||0} collectibles so far`;
     } else {
       $('#scanBar').style.width = '0';
-      $('#scanText').textContent = 'Waiting for the game. Launch Psychonauts 2 and stay on the main menu.';
+      $('#scanText').textContent = 'Waiting for the game. Launch Psychonauts 2 and stay on the title screen.';
     }
+    $('details.adv').open = true;
   }
-  const sum = sc.summary, box = $('#scanSummary');
-  if(sc.done && sum){
-    const col = (sc.collected||[]).map((c,i)=> c ? `Slot ${i+1}: ${c.total||0} already collected` : null).filter(Boolean).join(' · ');
-    box.innerHTML = `<div class="note">Scan complete: <b>${sum.total}</b> collectibles across ${Object.keys(sum.byLevel).length} areas, collected or not.${col ? '<br>'+col+'.' : ''}${sc.export ? `<br>Full list saved to ${sc.export}` : ''}</div>` +
-      (sum.warnings||[]).map(w=>`<div class="note warn">${w}. These stay in their original spots.</div>`).join('');
-  } else if(st.state==='failed'){
-    box.innerHTML = `<div class="note warn">The scan ran but found no collectibles. Open the mod folder and send psychorando.log so this can be fixed.</div>`;
-  } else if(sc.hasData && !running){
-    box.innerHTML = `<div class="note warn">The last scan didn't finish (the game may have closed or crashed). Start it again to resume where it stopped.</div>`;
-  } else box.innerHTML = '';
-  $('#s2').classList.toggle('done', !!sc.done);
-  $('#exportBtn').classList.toggle('hidden', !(sc.done && sum));
+  $('#scanNote').innerHTML = st.state==='failed' ? `<div class="note warn">The scan ran but found no collectibles. The built-in list is still used.</div>` : '';
+  const sum = sc.summary;
+  if(sum){
+    const by = sum.byCategory || {};
+    const parts = state.categories.filter(c => by[c.ID]).map(c => `${by[c.ID]} ${c.Name.toLowerCase()}`);
+    const col = (sc.collected||[]).map((c,i)=> c ? `Slot ${i+1}: ${c.total||0} collected` : null).filter(Boolean).join(' · ');
+    $('#dataLead').textContent = sc.source === 'your scan' ? 'Using the list from your own scan of the game.' : "Every collectible in the game is built into PsychoRando, so there's nothing to scan.";
+    $('#scanSummary').innerHTML = `<div class="note"><b>${sum.total}</b> collectibles across ${Object.keys(sum.byLevel).length} areas: ${parts.join(', ')}.${col ? '<br>'+col+'.' : ''}${sc.export ? `<br>Full list: ${sc.export}` : ''}</div>`;
+  }
+  $('#exportBtn').classList.toggle('hidden', !sum);
 }
 
 function renderGo(){
-  const ready = state.scan.done && selSlot !== null;
+  const ready = !!state.scan.summary && selSlot !== null;
   $('#go').disabled = !ready;
   const s = selSlot!==null ? state.slots[selSlot] : null;
   $('#go').textContent = s ? `Randomize ${s.label}` : 'Randomize slot';
-  $('#goText').textContent = !state.scan.done ? 'Finish the scan in step 2 first.' :
+  $('#goText').textContent =
     (s ? (s.randomized ? `${s.label} already uses seed “${s.seed}”. Randomizing again replaces it; items you already collected stay collected.` :
       `${s.label} will be randomized. Load it in-game and start collecting.`) : 'Pick a save slot above first.');
   $('#unrando').classList.toggle('hidden', !(s && s.randomized));
@@ -321,7 +328,7 @@ async function refresh(full){
   $('#ver').textContent = 'Mod ' + ins.bundledVersion;
   $('#s1').classList.toggle('done', ins.gameFound && ins.ue4ssFound && ins.modInstalled && !ins.needsUpdate);
   renderSlots(); renderScan(); renderGo();
-  if(!full && state.scan.done && !document.querySelector('.cat .count')) renderCats();
+  
   const running = state.scan.requested && !state.scan.done;
   if(running && !poll) poll = setInterval(()=>refresh(false).catch(()=>{}), 2000);
   if(!running && poll){ clearInterval(poll); poll = null; }
@@ -343,7 +350,7 @@ guard($('#install'), async () => { await api('/api/install', {}); await refresh(
 guard($('#scanStart'), async () => { await api('/api/scan/request', {fresh: !!(state.scan.done), full:false}); await refresh(false); });
 guard($('#scanFresh'), async () => { await api('/api/scan/request', {fresh:true, full:false}); await refresh(false); });
 guard($('#scanCancel'), async () => { await api('/api/scan/cancel', {}); await refresh(false); });
-guard($('#exportBtn'), async () => { const r = await api('/api/export', {}); $('#scanSummary').insertAdjacentHTML('beforeend', `<div class="note">Exported ${r.count} collectibles to ${r.path}</div>`); });
+guard($('#exportBtn'), async () => { const r = await api('/api/export', {});  });
 guard($('#launch'), async () => { await api('/api/launch', {}); });
 guard($('#openSaves'), async () => { await api('/api/open', {What:'saves'}); });
 guard($('#rollSeed'), async () => { $('#seed').value = (await api('/api/randomseed')).seed; });

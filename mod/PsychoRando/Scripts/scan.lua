@@ -238,6 +238,54 @@ local function scanPackage(pkg, expand)
             end
         end
     end
+    -- Pickups and interactables WITHOUT a CoCollectable component (scavenger hunt
+    -- items, some keys) are recorded too, keyed by package|actor.
+    local withColl = {}
+    for _, c in ipairs(collectables) do
+        local okO, a = pcall(function() return c:GetOuter() end)
+        if okO and U.valid(a) then withColl[U.fullName(a) or ""] = true end
+    end
+    local function extra(actorFull, actor, grants, refs)
+        local cat
+        local function scanList(list, idx)
+            for _, g in ipairs(list) do
+                local p = g[idx] or ""
+                if p:find("/ScavengerHunt/") then cat = "scavenger" end
+                if not cat and p:find("INV_SupplyChestKey") then cat = "supplykey" end
+            end
+        end
+        scanList(grants or {}, 1)
+        scanList(refs or {}, 2)
+        if not cat then return end
+        local _, aname = U.splitActorPath(actorFull)
+        local rec = { pkg = pkg, actor = aname or "?", class = actorFull:match("^(%S+)") or "?",
+            cat = cat, id = "None", grants = grants or U.list(), refs = refs or U.list(), loc = vecOf(actor), noCollectable = true }
+        for _, g in ipairs(rec.grants) do if g[1] ~= "None" then SeenItems[g[1]] = true end end
+        for _, r in ipairs(rec.refs) do if r[2]:find("/Inventory/") then SeenItems[r[2]] = true end end
+        appendLine(F_LOCS, U.json(rec))
+        count = count + 1
+    end
+    local done = {}
+    for _, map in ipairs({ pickupables, pickupables2 }) do
+        for owner, pk in pairs(map) do
+            if not withColl[owner] and not done[owner] then
+                done[owner] = true
+                local okA, actor = pcall(function() return pk:GetOuter() end)
+                if okA and U.valid(actor) then extra(owner, actor, grantedItems(pk), inventoryRefs(actor)) end
+            end
+        end
+    end
+    local interact = componentsByOwner("COMP_Interactible_C", pkg)
+    for owner, ic in pairs(interact) do
+        if not withColl[owner] and not done[owner] then
+            local cls = owner:match("^(%S+)") or ""
+            if cls:upper():find("SCAV") or cls:find("PKUP_") or cls:upper():find("KEY") or cls:upper():find("CRITICAL") then
+                done[owner] = true
+                local okA, actor = pcall(function() return ic:GetOuter() end)
+                if okA and U.valid(actor) then extra(owner, actor, nil, inventoryRefs(actor)) end
+            end
+        end
+    end
     return count, nil
 end
 

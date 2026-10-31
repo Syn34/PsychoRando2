@@ -125,6 +125,15 @@ local function locationOf(comp)
     return entry, key, actor
 end
 
+-- Locations without a CoCollectable component (scavenger hunt items etc.)
+local function locationOfActor(actor)
+    if not seed or not U.valid(actor) then return nil end
+    local pkg, aname = U.splitActorPath(U.fullName(actor))
+    if not pkg or not aname then return nil end
+    local key = "pa:" .. pkg .. "|" .. aname
+    return seed.locs[key], key
+end
+
 local function categoryOfItem(path)
     if not seed or not seed.itemCat then return nil end
     return seed.itemCat[path]
@@ -171,6 +180,42 @@ local function pickupableOf(actor)
     local pk = U.get(actor, "COMP_Pickupable")
     if U.valid(pk) then return pk end
     return nil
+end
+
+local function rewriteActor(actor, entry, key)
+    if not entry or not entry.give or entry.from == key then return end
+    local pk = pickupableOf(actor)
+    if not pk then return end
+    local full = U.fullName(pk)
+    if not full or processed[full] then return end
+    processed[full] = true
+    local arr = U.get(pk, "m_aPickupGrantedItems")
+    local n = 0
+    pcall(function() n = arr:GetArrayNum() end)
+    if n < 1 or #entry.give > 1 then return end
+    local ok = pcall(function()
+        if #entry.give == 1 then
+            arr[1].m_pItemToGrant = loadItem(entry.give[1][1])
+            arr[1].m_iAmountToGrant = entry.give[1][2]
+        else
+            arr[1].m_iAmountToGrant = 0
+        end
+        for i = 2, n do arr[i].m_iAmountToGrant = 0 end
+    end)
+    if ok then entry.rewritten = entry.rewritten or {}; entry.rewritten[U.fullName(actor) or full] = true end
+end
+
+local function sweepActorLocations()
+    if not seed or not seed.hasActorLocs then return end
+    for _, cls in ipairs({ "COMP_Pickupable_C", "COMP_Interactible_C" }) do
+        for _, c in ipairs(FindAllOf(cls) or {}) do
+            local okO, actor = pcall(function() return c:GetOuter() end)
+            if okO and U.valid(actor) and not U.valid(U.get(actor, "CoCollectable")) then
+                local entry, key = locationOfActor(actor)
+                if entry then pcall(rewriteActor, actor, entry, key) end
+            end
+        end
+    end
 end
 
 local function tryRewrite(comp)
@@ -315,11 +360,30 @@ local function p(v)
     return v
 end
 
+local function onActorCollected(actor, why)
+    local entry, key = locationOfActor(actor)
+    if not entry or handled[key] or entry.from == key then return end
+    handled[key] = true
+    if entry.rewritten and entry.rewritten[U.fullName(actor) or ""] then
+        for _, g in ipairs(entry.give or {}) do expect[g[1]] = (expect[g[1]] or 0) + g[2] end
+        U.log("Received: %s  (%s %s)", giveLabel(entry), why, key)
+        return
+    end
+    local r = recent[entry.c]
+    if r and now() - r.t < 1.5 then
+        recent[entry.c] = nil
+        deferred(function() revert(r.obj, r.item, r.delta) end)
+    else
+        context[entry.c] = { key = key, t = now() }
+    end
+    deferred(function() grant(entry, why .. " " .. key) end)
+end
+
 local function actorHook(why)
     return function(self)
         local actor = p(self)
         local c = collectableOfActor(actor)
-        if c then onCollected(c, why) end
+        if c then onCollected(c, why) else onActorCollected(actor, why) end
     end
 end
 
@@ -370,6 +434,7 @@ function R.start()
             if t % 40 == 1 then pcall(refreshSeed) end
             if t % 200 == 2 then pcall(registerHooks) end
             if t % 100 == 3 then pcall(sweepExisting) end
+            if t % 100 == 53 then pcall(sweepActorLocations) end
             if t % 5 == 0 then pcall(processPending) end
             return false
         end)

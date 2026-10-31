@@ -57,6 +57,7 @@ type ScanStatus struct {
 	Summary   *DataSummary           `json:"summary,omitempty"`
 	Collected []map[string]int       `json:"collected,omitempty"`
 	Export    string                 `json:"export,omitempty"`
+	Source    string                 `json:"source"`
 }
 
 func (a *App) exportPath() string {
@@ -76,8 +77,9 @@ func (a *App) scanStatus() ScanStatus {
 	if b, err := os.ReadFile(filepath.Join(p.DataDir(), "scan_status.json")); err == nil {
 		_ = json.Unmarshal(b, &s.Status)
 	}
-	if s.HasData && s.Done {
-		if gd, err := LoadGameData(p.DataDir()); err == nil {
+	{
+		if gd := LoadActiveGameData(p.DataDir()); gd != nil {
+			s.Source = gd.Source
 			sum := gd.Summary()
 			s.Summary = &sum
 			s.Collected = CollectedCounts(gd, p.SaveDir)
@@ -85,7 +87,7 @@ func (a *App) scanStatus() ScanStatus {
 			out := a.exportPath()
 			doneSt, _ := os.Stat(filepath.Join(p.DataDir(), "scan_done.txt"))
 			outSt, err := os.Stat(out)
-			if err != nil || (doneSt != nil && outSt.ModTime().Before(doneSt.ModTime())) {
+			if err != nil || (doneSt != nil && gd.Source == "your scan" && outSt.ModTime().Before(doneSt.ModTime())) {
 				_, _ = ExportCollectibles(gd, p.SaveDir, p.ModDir(), out)
 			}
 			if fileExists(out) {
@@ -261,11 +263,7 @@ func (a *App) routes() http.Handler {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		p := a.cfg.Paths
-		gd, err := LoadGameData(p.DataDir())
-		if err != nil {
-			writeErr(w, err)
-			return
-		}
+		gd := LoadActiveGameData(p.DataDir())
 		if req.Options.Seed == "" {
 			req.Options.Seed = RandomSeedName()
 		}
@@ -307,9 +305,7 @@ func (a *App) routes() http.Handler {
 		_ = os.Remove(base + ".lua")
 		_ = os.Remove(base + "_spoiler.txt")
 		_ = os.Remove(base + ".json")
-		if gd, err := LoadGameData(a.cfg.Paths.DataDir()); err == nil {
-			_, _ = ExportCollectibles(gd, a.cfg.Paths.SaveDir, a.cfg.Paths.ModDir(), a.exportPath())
-		}
+		_, _ = ExportCollectibles(LoadActiveGameData(a.cfg.Paths.DataDir()), a.cfg.Paths.SaveDir, a.cfg.Paths.ModDir(), a.exportPath())
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 
@@ -331,11 +327,7 @@ func (a *App) routes() http.Handler {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		p := a.cfg.Paths
-		gd, err := LoadGameData(p.DataDir())
-		if err != nil {
-			writeErr(w, err)
-			return
-		}
+		gd := LoadActiveGameData(p.DataDir())
 		out := a.exportPath()
 		n, err := ExportCollectibles(gd, p.SaveDir, p.ModDir(), out)
 		if err != nil {

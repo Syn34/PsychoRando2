@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,6 +25,7 @@ type ScanLoc struct {
 	Refs   FlexList[[]string]      `json:"refs"`
 	Loc    []float64               `json:"loc"`
 	Loot   bool                    `json:"loot"`
+	Cat    string                  `json:"cat"` // set by the scanner for spots without a CoCollectable
 }
 
 // FlexList accepts a JSON array, or {} / null as an empty list (older mod
@@ -89,6 +91,7 @@ type GameData struct {
 	Locations []*Location
 	Items     map[string]ScanItem // by object path
 	Warnings  []string
+	Source    string
 }
 
 var catByType = map[int]string{
@@ -191,9 +194,43 @@ func shortName(path string) string {
 
 var reCamel = regexp.MustCompile(`([a-z])([A-Z])`)
 
+var areaByItemCode = map[string]string{
+	"LOBO": "Loboto's Labyrinth", "HOLL": "Hollis' Mind", "COMP": "Compton's Cookoff", "COMPT": "Compton's Cookoff",
+	"HELM": "PSI King's Sensorium", "FORD": "Ford's Sanctuary", "FORB": "Strike City", "FORC": "Cruller's Correspondence",
+	"FORG": "Tomb of the Sharkophagus", "FORH": "Ford's Follicles", "BOBZ": "Bob's Bottles", "CASS": "Cassie's Collection",
+	"MALI": "Lucrecia's Lament", "GRIS": "Fatherland Follies",
+}
+
+var fixedItemNames = map[string]string{
+	"INV_MIND_HP": "Half-a-Mind", "INV_PSICHALLENGECARD": "PSI Challenge Card", "INV_PSICHALLENGECORE": "PSI Core",
+	"INV_PSIMARKER": "PSI Challenge Marker", "INV_NUGGETOFWISDOM": "Nugget of Wisdom",
+	"INV_SUPPLYCHESTKEY_BASE": "Supply Chest Key", "INV_PLAYERXP": "XP",
+}
+
+func areaName(code string) string {
+	if n, ok := areaByItemCode[strings.ToUpper(code)]; ok {
+		return n
+	}
+	return code
+}
+
 func prettyItem(path string, items map[string]ScanItem) string {
 	if it, ok := items[path]; ok && it.Name != "" {
 		return it.Name
+	}
+	sn := shortName(path)
+	up := strings.ToUpper(sn)
+	if n, ok := fixedItemNames[up]; ok {
+		return n
+	}
+	parts := strings.Split(sn, "_")
+	switch {
+	case strings.HasPrefix(up, "INV_VAULT_") && len(parts) >= 4:
+		return fmt.Sprintf("Memory Vault (%s #%s)", areaName(strings.Join(parts[2:len(parts)-1], "_")), parts[len(parts)-1])
+	case strings.HasPrefix(up, "INV_BAGTAG_") && len(parts) >= 4:
+		return fmt.Sprintf("%s Tag (%s)", reCamel.ReplaceAllString(strings.Join(parts[2:len(parts)-1], " "), "$1 $2"), areaName(parts[len(parts)-1]))
+	case strings.HasPrefix(up, "INV_SORTEDBAG_") && len(parts) >= 4:
+		return fmt.Sprintf("Sorted %s (%s)", reCamel.ReplaceAllString(strings.Join(parts[2:len(parts)-1], " "), "$1 $2"), areaName(parts[len(parts)-1]))
 	}
 	n := shortName(path)
 	for _, p := range []string{"SCAVHUNTITEM_", "INV_VAULT_", "INV_BagTag_", "INV_SortedBag_", "INV_Unique_", "INV_"} {
@@ -248,6 +285,56 @@ func bagTypeOf(s string) string {
 	return ""
 }
 
+//go:embed builtin/scan_locations.jsonl
+var builtinLocations []byte
+
+//go:embed builtin/scan_items.jsonl
+var builtinItems []byte
+
+// BuiltinCount is the number of collectibles shipped inside the app.
+func BuiltinCount() int {
+	gd := LoadBuiltinGameData()
+	return len(gd.Locations)
+}
+
+// LoadBuiltinGameData uses the collectible list shipped inside the app
+// (captured from a full in-game scan), so no scan is needed.
+func LoadBuiltinGameData() *GameData {
+	locs, _ := parseJSONL[ScanLoc](builtinLocations)
+	rawItems, _ := parseJSONL[ScanItem](builtinItems)
+	gd := &GameData{Items: map[string]ScanItem{}, Source: "built-in"}
+	for _, it := range rawItems {
+		gd.Items[it.Path] = it
+	}
+	return buildGameData(gd, locs)
+}
+
+// LoadActiveGameData prefers a completed local rescan, else the built-in list.
+func LoadActiveGameData(dataDir string) *GameData {
+	if fileExists(filepath.Join(dataDir, "scan_done.txt")) {
+		if gd, err := LoadGameData(dataDir); err == nil && len(gd.Locations) > 0 {
+			gd.Source = "your scan"
+			return gd
+		}
+	}
+	return LoadBuiltinGameData()
+}
+
+func parseJSONL[T any](b []byte) ([]T, error) {
+	var out []T
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var v T
+		if json.Unmarshal([]byte(line), &v) == nil {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
 // LoadGameData reads the scanner output from the mod's data folder.
 func LoadGameData(dataDir string) (*GameData, error) {
 	locs, err := readJSONL[ScanLoc](filepath.Join(dataDir, "scan_locations.jsonl"))
@@ -275,11 +362,16 @@ func buildGameData(gd *GameData, locs []ScanLoc) *GameData {
 	byKey := map[string]*Location{}
 	var order []string
 	for _, l := range locs {
-		if l.Type == nil {
-			continue
-		}
-		cat, ok := catByType[*l.Type]
-		if !ok {
+		var cat string
+		if l.Type != nil {
+			c, ok := catByType[*l.Type]
+			if !ok {
+				continue
+			}
+			cat = c
+		} else if l.Cat != "" {
+			cat = l.Cat
+		} else {
 			continue
 		}
 		level := levelOfPkg(l.Pkg)

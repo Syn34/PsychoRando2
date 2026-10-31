@@ -77,7 +77,13 @@ func WriteSeed(modDir string, slot int, gd *GameData, res *SeedResult) (seedPath
 	for _, p := range ips {
 		fmt.Fprintf(&b, "    [%s] = %s,\n", luaStr(p), luaStr(itemCat[p]))
 	}
-	b.WriteString("  },\n  locs = L,\n}\n")
+	hasActor := false
+	for _, p := range res.Placements {
+		if p.Loc.ID == "" {
+			hasActor = true
+		}
+	}
+	fmt.Fprintf(&b, "  },\n  hasActorLocs = %v,\n  locs = L,\n}\n", hasActor)
 
 	// locations: one shared table per location, referenced from each alias
 	for i, p := range res.Placements {
