@@ -96,6 +96,8 @@ function U.eachArray(arr, fn)
     end
 end
 
+function U.list() return { __array = true } end
+
 -- Minimal JSON encoder (strings, numbers, booleans, arrays, objects)
 local function esc(s)
     s = s:gsub('[%c"\\]', function(c)
@@ -120,10 +122,10 @@ function U.json(v)
     end
     if t == "string" then return '"' .. esc(v) .. '"' end
     if t == "table" then
-        local isArr = (#v > 0) or (next(v) == nil and v.__array)
+        local isArr = v.__array or #v > 0
         if isArr then
             local parts = {}
-            for i = 1, #v do parts[#parts + 1] = U.json(v[i]) end
+            for i = 1, #v do parts[#parts + 1] = U.json(v[i]) end -- (__array marker is not a list element)
             return "[" .. table.concat(parts, ",") .. "]"
         end
         local parts = {}
@@ -137,44 +139,102 @@ function U.json(v)
     return '"' .. esc(tostring(v)) .. '"'
 end
 
--- Startup gate. Searching the object list (FindFirstOf/FindAllOf) while the
--- engine is still initializing crashes UE4SS 3.0.1, so nothing may search
--- until a PlayerController exists and the game has had time to settle.
+-- Game-thread scheduler.
+-- UE4SS 3.0.1's ExecuteInGameThread runs on whichever thread next calls
+-- ProcessEvent, which is sometimes a worker thread; loading assets there
+-- crashes ("Tried to access cooked shader map ID from unknown thread").
+-- Instead we start a looping engine timer on the PlayerController that calls
+-- the harmless AActor::ForceNetUpdate, and hook that function: engine timers
+-- always fire on the game thread. All engine work runs from that tick.
+--
+-- Startup: searching objects while the engine initializes also crashes, so
+-- nothing happens until a PlayerController exists and the game has settled.
+local tickFns, postQueue = {}, {}
 local readyCallbacks, readyFired, pcSeenAt = {}, false, nil
 local startedAt = os.time()
-local SETTLE_SECONDS = 8      -- after the first PlayerController appears
-local FALLBACK_SECONDS = 90   -- in case that signal is never seen
+local lastTick = 0
+local armedAt = 0
+local SETTLE_SECONDS = 8
+local FALLBACK_SECONDS = 90
+local TICK_INTERVAL = 0.05
+
+U.gameTicks = 0
+
+-- Run fn on the game thread at the next tick
+function U.post(fn) postQueue[#postQueue + 1] = fn end
+
+-- Run fn(tickNumber) on the game thread every tick; return true from fn to stop
+function U.everyTick(fn) tickFns[#tickFns + 1] = fn end
 
 function U.onReady(fn)
-    if readyFired then ExecuteInGameThread(fn) return end
+    if readyFired then U.post(fn) return end
     readyCallbacks[#readyCallbacks + 1] = fn
 end
 
 function U.isReady() return readyFired end
 
+local function drain()
+    U.gameTicks = U.gameTicks + 1
+    lastTick = os.time()
+    if not readyFired then
+        readyFired = true
+        U.log("Game is up; starting.")
+        for _, fn in ipairs(readyCallbacks) do postQueue[#postQueue + 1] = fn end
+        readyCallbacks = {}
+    end
+    local q = postQueue
+    postQueue = {}
+    for _, fn in ipairs(q) do
+        local ok, err = pcall(fn)
+        if not ok then U.log("error: %s", tostring(err)) end
+    end
+    local snapshot = tickFns
+    local done = {}
+    for i = 1, #snapshot do
+        local ok, res = pcall(snapshot[i], U.gameTicks)
+        if not ok then U.log("tick error: %s", tostring(res))
+        elseif res then done[snapshot[i]] = true end
+    end
+    if next(done) then
+        local keep = {}
+        for _, fn in ipairs(tickFns) do if not done[fn] then keep[#keep + 1] = fn end end
+        tickFns = keep
+    end
+end
+
+local function arm()
+    local pc = FindFirstOf("PlayerController")
+    if not U.valid(pc) then return false end
+    local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+    local ok, err = pcall(function() ksl:K2_SetTimer(pc, "ForceNetUpdate", TICK_INTERVAL, true, 0.0, 0.0) end)
+    if not ok then U.log("could not start game-thread timer: %s", tostring(err)) return false end
+    U.log("Game-thread timer started on %s", U.fullName(pc) or "?")
+    return true
+end
+
 function U.initReadyGate()
     NotifyOnNewObject("/Script/Engine.PlayerController", function()
         if not pcSeenAt then pcSeenAt = os.time() end
     end)
+    RegisterHook("/Script/Engine.Actor:ForceNetUpdate", function()
+        drain()
+    end)
+    -- Map changes replace the controller (and its timer); this hook runs on the game thread
     pcall(function()
         RegisterHook("/Script/Engine.PlayerController:ClientRestart", function()
             if not pcSeenAt then pcSeenAt = os.time() end
+            if readyFired and os.time() - armedAt >= 1 then armedAt = os.time() pcall(arm) end
         end)
     end)
-    LoopAsync(500, function()
+    -- Arms (and re-arms after map changes destroy the controller) the timer
+    LoopAsync(1000, function()
         local t = os.time()
-        local go = (pcSeenAt and t - pcSeenAt >= SETTLE_SECONDS) or (t - startedAt >= FALLBACK_SECONDS)
-        if not go then return false end
-        readyFired = true
-        U.log("Game is up; starting.")
-        for _, fn in ipairs(readyCallbacks) do
-            ExecuteInGameThread(function()
-                local ok, err = pcall(fn)
-                if not ok then U.log("ready callback error: %s", tostring(err)) end
-            end)
+        local settled = (pcSeenAt and t - pcSeenAt >= SETTLE_SECONDS) or (t - startedAt >= FALLBACK_SECONDS)
+        if settled and t - lastTick >= 3 and t - armedAt >= 3 then
+            armedAt = t
+            ExecuteInGameThread(function() pcall(arm) end)
         end
-        readyCallbacks = {}
-        return true
+        return false
     end)
 end
 

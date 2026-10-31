@@ -161,12 +161,7 @@ local function revert(itemObj, path, delta)
 end
 
 local function deferred(fn)
-    ExecuteWithDelay(30, function()
-        ExecuteInGameThread(function()
-            local ok, err = pcall(fn)
-            if not ok then U.log("deferred error: %s", tostring(err)) end
-        end)
-    end)
+    U.post(fn) -- next game-thread tick, outside the inventory callback
 end
 
 ---------------------------------------------------------------------------
@@ -365,35 +360,23 @@ function R.start()
     NotifyOnNewObject("/Script/Psychonauts2.CoCollectable", function(comp)
         if seed and not U.scanning then pending[#pending + 1] = { comp = comp, t = now() } end
     end)
-    RegisterHook("/Script/Engine.PlayerController:ClientRestart", function()
-        if not U.isReady() then return end
-        ExecuteWithDelay(1500, function()
-            ExecuteInGameThread(function()
-                pcall(refreshSeed)
-                pcall(registerHooks)
-                pcall(sweepExisting)
-            end)
-        end)
-    end)
-
     U.onReady(function()
         pcall(refreshSeed)
         pcall(registerHooks)
         pcall(sweepExisting)
-        local tick = 0
-        LoopAsync(250, function()
-            tick = tick + 1
-            ExecuteInGameThread(function()
-                if tick % 8 == 1 then pcall(refreshSeed) end
-                if tick % 40 == 2 then pcall(registerHooks) end
-                pcall(processPending)
-            end)
+        -- ticks run ~20 times a second on the game thread
+        U.everyTick(function(t)
+            if U.scanning then return false end
+            if t % 40 == 1 then pcall(refreshSeed) end
+            if t % 200 == 2 then pcall(registerHooks) end
+            if t % 100 == 3 then pcall(sweepExisting) end
+            if t % 5 == 0 then pcall(processPending) end
             return false
         end)
     end)
 
     RegisterKeyBind(Key.F8, { ModifierKey.CONTROL }, function()
-        ExecuteInGameThread(function()
+        U.post(function()
             if seed then
                 U.log("Seed '%s' active on save slot %d", tostring(seed.seed), (seedSlot or 0) + 1)
             elseif not U.isReady() then

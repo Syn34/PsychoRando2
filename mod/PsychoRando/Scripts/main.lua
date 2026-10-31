@@ -3,7 +3,7 @@
 package.path = ".\\Mods\\PsychoRando\\Scripts\\?.lua;" .. package.path
 
 local U = require("util")
-local VERSION = "0.1.3"
+local VERSION = "0.1.5"
 U.log("PsychoRando %s loading", VERSION)
 U.writeAll(U.ROOT .. "data/mod_version.txt", VERSION)
 
@@ -17,8 +17,8 @@ else
     require("runtime").start()
     -- A scan can also be requested from the app while the game is already running
     U.onReady(function()
-        LoopAsync(2000, function()
-            if not Scan.requested() then return false end
+        U.everyTick(function(t)
+            if t % 40 ~= 0 or not Scan.requested() then return false end
             U.scanning = true
             U.log("Scan request detected; switching to scan mode")
             Scan.run()

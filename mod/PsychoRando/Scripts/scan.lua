@@ -106,7 +106,7 @@ end
 
 -- Generic: object properties on an actor that point into the inventory folder
 local function inventoryRefs(obj)
-    local refs = {}
+    local refs = U.list()
     local okC, cls = pcall(function() return obj:GetClass() end)
     if not okC or not cls then return refs end
     local guard = 0
@@ -137,7 +137,7 @@ local function inventoryRefs(obj)
 end
 
 local function grantedItems(pickupable)
-    local items = {}
+    local items = U.list()
     if not U.valid(pickupable) then return items end
     U.eachArray(U.get(pickupable, "m_aPickupGrantedItems"), function(_, el)
         local it = U.get(el, "m_pItemToGrant")
@@ -406,18 +406,12 @@ function S.run()
         end
     end
 
-    U.onReady(function()
-    LoopAsync(250, function()
+    -- One step per game-thread tick (~20/s); each step loads at most one package
+    U.everyTick(function()
         if state == "stopped" then return true end
-        if busy then return false end
-        busy = true
-        ExecuteInGameThread(function()
-            local ok, err = pcall(step)
-            if not ok then U.log("scan step error: %s", tostring(err)) end
-            busy = false
-        end)
+        local ok, err = pcall(step)
+        if not ok then U.log("scan step error: %s", tostring(err)) end
         return false
-    end)
     end)
 end
 

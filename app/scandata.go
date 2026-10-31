@@ -14,16 +14,34 @@ import (
 // ---- Raw records written by the in-game scanner ----
 
 type ScanLoc struct {
-	Pkg    string          `json:"pkg"`
-	Actor  string          `json:"actor"`
-	Class  string          `json:"class"`
-	Type   *int            `json:"type"`
-	ID     string          `json:"id"`
-	Comp   string          `json:"comp"`
-	Grants [][]interface{} `json:"grants"`
-	Refs   [][]string      `json:"refs"`
-	Loc    []float64       `json:"loc"`
-	Loot   bool            `json:"loot"`
+	Pkg    string                  `json:"pkg"`
+	Actor  string                  `json:"actor"`
+	Class  string                  `json:"class"`
+	Type   *int                    `json:"type"`
+	ID     string                  `json:"id"`
+	Comp   string                  `json:"comp"`
+	Grants FlexList[[]interface{}] `json:"grants"`
+	Refs   FlexList[[]string]      `json:"refs"`
+	Loc    []float64               `json:"loc"`
+	Loot   bool                    `json:"loot"`
+}
+
+// FlexList accepts a JSON array, or {} / null as an empty list (older mod
+// versions wrote empty Lua tables as {}).
+type FlexList[T any] []T
+
+func (f *FlexList[T]) UnmarshalJSON(b []byte) error {
+	s := strings.TrimSpace(string(b))
+	if s == "{}" || s == "null" || s == "" {
+		*f = nil
+		return nil
+	}
+	var v []T
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*f = v
+	return nil
 }
 
 type ScanItem struct {

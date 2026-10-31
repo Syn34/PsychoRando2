@@ -1,3 +1,4 @@
 dist/
 app/modfiles/
 *.exe
+luac.out
