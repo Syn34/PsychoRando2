@@ -316,11 +316,66 @@ func LoadBuiltinGameData() *GameData {
 	return buildGameData(gd, locs)
 }
 
-// LoadActiveGameData prefers a completed local rescan, else the built-in list.
-func LoadActiveGameData(dataDir string) *GameData {
-	if fileExists(filepath.Join(dataDir, "scan_done.txt")) {
-		if gd, err := LoadGameData(dataDir); err == nil && len(gd.Locations) > 0 {
-			gd.Source = "your scan"
+// AppDataDir is where the app keeps its own copy of the latest completed scan
+// (next to PsychoRando.exe), so a scan survives mod reinstalls.
+func AppDataDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(exe), "data")
+}
+
+var scanFiles = []string{"scan_locations.jsonl", "scan_items.jsonl", "figment_params.json", "scan_done.txt"}
+
+// AdoptScan copies a completed scan from the mod's data folder into the app's
+// own data folder if it is newer than what the app already has. Returns true
+// when the app's built-in data was updated.
+func AdoptScan(modDataDir string) bool {
+	dst := AppDataDir()
+	src := filepath.Join(modDataDir, "scan_done.txt")
+	st, err := os.Stat(src)
+	if err != nil || dst == "" {
+		return false
+	}
+	if dt, err := os.Stat(filepath.Join(dst, "scan_done.txt")); err == nil && !st.ModTime().After(dt.ModTime()) {
+		return false
+	}
+	if gd, err := LoadGameData(modDataDir); err != nil || len(gd.Locations) == 0 {
+		return false // never replace good data with an empty/failed scan
+	}
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return false
+	}
+	for _, f := range scanFiles {
+		if f == "scan_done.txt" || !fileExists(filepath.Join(modDataDir, f)) {
+			continue
+		}
+		if copyFile(filepath.Join(modDataDir, f), filepath.Join(dst, f+".tmp")) != nil {
+			return false
+		}
+	}
+	for _, f := range scanFiles {
+		if f == "scan_done.txt" || !fileExists(filepath.Join(dst, f+".tmp")) {
+			continue
+		}
+		_ = os.Rename(filepath.Join(dst, f+".tmp"), filepath.Join(dst, f))
+	}
+	// written last, with the scan's own timestamp, marking the copy complete
+	if copyFile(src, filepath.Join(dst, "scan_done.txt")) != nil {
+		return false
+	}
+	_ = os.Chtimes(filepath.Join(dst, "scan_done.txt"), st.ModTime(), st.ModTime())
+	return true
+}
+
+// LoadActiveGameData uses, in order: the app's own copy of the latest scan,
+// then the list compiled into the app.
+func LoadActiveGameData(modDataDir string) *GameData {
+	AdoptScan(modDataDir)
+	if d := AppDataDir(); d != "" && fileExists(filepath.Join(d, "scan_done.txt")) {
+		if gd, err := LoadGameData(d); err == nil && len(gd.Locations) > 0 {
+			gd.Source = "latest scan"
 			return gd
 		}
 	}

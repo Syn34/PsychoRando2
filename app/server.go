@@ -85,9 +85,9 @@ func (a *App) scanStatus() ScanStatus {
 			s.Collected = CollectedCounts(gd, p.SaveDir)
 			// write the export automatically the first time a finished scan is seen
 			out := a.exportPath()
-			doneSt, _ := os.Stat(filepath.Join(p.DataDir(), "scan_done.txt"))
+			doneSt, _ := os.Stat(filepath.Join(AppDataDir(), "scan_done.txt"))
 			outSt, err := os.Stat(out)
-			if err != nil || (doneSt != nil && gd.Source == "your scan" && outSt.ModTime().Before(doneSt.ModTime())) {
+			if err != nil || (doneSt != nil && outSt.ModTime().Before(doneSt.ModTime())) {
 				_, _ = ExportCollectibles(gd, p.SaveDir, p.ModDir(), out)
 			}
 			if fileExists(out) {

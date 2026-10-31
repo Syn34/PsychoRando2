@@ -142,7 +142,7 @@ details.adv[open] summary{margin-bottom:8px}
       <div class="row"><button class="btn hidden" id="exportBtn">Export collectibles list</button></div>
       <details class="adv">
         <summary>Rescan the game (only needed after a game update)</summary>
-        <p class="hint">The mod opens every level inside the game and rebuilds the list. Start it, then keep the game on the title screen for about a minute.</p>
+        <p class="hint">The mod opens every level inside the game and rebuilds the list. Start it, then keep the game on the title screen for about a minute. When it finishes, PsychoRando keeps the new list as its built-in data.</p>
         <div class="row">
           <button class="btn" id="scanStart">Start scan</button>
           <button class="btn" id="launch">Launch Psychonauts 2</button>
@@ -286,7 +286,7 @@ function renderScan(){
     const by = sum.byCategory || {};
     const parts = state.categories.filter(c => by[c.ID]).map(c => `${by[c.ID]} ${c.Name.toLowerCase()}`);
     const col = (sc.collected||[]).map((c,i)=> c ? `Slot ${i+1}: ${c.total||0} collected` : null).filter(Boolean).join(' · ');
-    $('#dataLead').textContent = sc.source === 'your scan' ? 'Using the list from your own scan of the game.' : "Every collectible in the game is built into PsychoRando, so there's nothing to scan.";
+    $('#dataLead').textContent = sc.source === 'latest scan' ? "Every collectible is built into PsychoRando, from the latest scan. There's nothing to scan." : "Every collectible in the game is built into PsychoRando, so there's nothing to scan.";
     $('#scanSummary').innerHTML = `<div class="note"><b>${sum.total}</b> collectibles across ${Object.keys(sum.byLevel).length} areas: ${parts.join(', ')}.${col ? '<br>'+col+'.' : ''}${sc.export ? `<br>Full list: ${sc.export}` : ''}</div>`;
   }
   $('#exportBtn').classList.toggle('hidden', !sum);
