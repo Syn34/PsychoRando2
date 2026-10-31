@@ -121,12 +121,13 @@ func (a *App) routes() http.Handler {
 			opts = defaultOptions()
 		}
 		resp := map[string]interface{}{
-			"paths":      p,
-			"install":    GetInstallState(p),
-			"slots":      slots,
-			"scan":       a.scanStatus(),
-			"options":    opts,
-			"categories": Categories,
+			"paths":       p,
+			"install":     GetInstallState(p),
+			"slots":       slots,
+			"scan":        a.scanStatus(),
+			"options":     opts,
+			"categories":  Categories,
+			"hasTemplate": func() bool { b, _ := MotherlobeTemplate(p.DataDir()); return b != nil }(),
 		}
 		if slotErr != nil {
 			resp["slotError"] = slotErr.Error()
@@ -299,12 +300,24 @@ func (a *App) routes() http.Handler {
 			writeErr(w, err)
 			return
 		}
+		// Motherlobe start: write the captured starting save so the slot just continues there
+		startsFrom := "beginning"
+		if req.Options.StartMotherlobe {
+			startsFrom = "in-game skip"
+			if tpl, src := MotherlobeTemplate(p.DataDir()); tpl != nil {
+				if err := WriteStartingSave(p.SaveDir, req.Slot, tpl); err != nil {
+					writeErr(w, fmt.Errorf("could not write the Motherlobe starting save: %w", err))
+					return
+				}
+				startsFrom = "motherlobe save (" + src + ")"
+			}
+		}
 		a.cfg.Options = req.Options
 		SaveConfig(a.cfg)
 		_, _ = ExportCollectibles(gd, p.SaveDir, p.ModDir(), a.exportPath())
 		writeJSON(w, map[string]interface{}{
 			"seed": res.Options.Seed, "stats": res.Stats, "seedFile": seedPath,
-			"spoilerFile": spoilerPath, "backup": backup,
+			"spoilerFile": spoilerPath, "backup": backup, "startsFrom": startsFrom,
 		})
 	})
 

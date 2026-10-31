@@ -85,8 +85,64 @@ local function openMotherlobe(raz)
     return false
 end
 
+-- ---------------------------------------------------------------------------
+-- Template capture: after this session's skip, the first save the game writes
+-- at the Motherlobe is copied to data/template_motherlobe.sav. The app then
+-- writes it straight into new randomized slots ("Continue" at the Motherlobe).
+local TEMPLATE = U.ROOT .. "data/template_motherlobe.sav"
+local capture = nil -- { slot=, baseline = {name -> content}, changedAt=, file= }
+
+local function saveDir()
+    local la = os.getenv("LOCALAPPDATA")
+    if not la then return nil end
+    return la .. "\\Psychonauts2\\Saved\\SaveGames\\"
+end
+
+local function slotFiles(slot)
+    local d = saveDir()
+    if not d then return {} end
+    return { d .. "Psychonauts2Save_" .. slot .. ".sav", d .. "Psychonauts2Save_" .. string.char(65 + slot) .. ".sav" }
+end
+
+local function captureTick(raz)
+    if not capture or capture.done then return end
+    local f = U.fullName(raz) or ""
+    if not f:find("/Game/Maps/HQIN/", 1, true) then return end
+    if not capture.baseline then
+        capture.baseline = {}
+        for _, p in ipairs(slotFiles(capture.slot)) do capture.baseline[p] = U.readAll(p) or "" end
+        U.log("start: at the Motherlobe; waiting for the game's save to capture the starting template")
+        return
+    end
+    if not capture.file then
+        for _, p in ipairs(slotFiles(capture.slot)) do
+            local now = U.readAll(p) or ""
+            if #now > 0 and now ~= capture.baseline[p] then capture.file, capture.changedAt = p, os.time() end
+        end
+        return
+    end
+    if os.time() - capture.changedAt < 3 then return end -- let the write finish
+    if not questComplete(raz, QUEST_DONE_LOBO) then
+        U.log("start: save written but Loboto's Labyrinth isn't marked complete yet; waiting for the next save")
+        capture.baseline, capture.file = nil, nil
+        return
+    end
+    local data = U.readAll(capture.file)
+    if data and #data > 1000 and data:sub(1, 4) == "GVAS" then
+        U.writeAll(TEMPLATE, data)
+        U.writeAll(U.ROOT .. "data/template_motherlobe.json",
+            U.json({ captured = os.date("%Y-%m-%d %H:%M:%S"), bytes = #data, from = capture.file }))
+        U.log("start: captured the Motherlobe starting save (%d bytes). New randomized games will start here.", #data)
+        capture.done = true
+    end
+end
+
 -- Called every game-thread tick by the runtime while a seed is active.
 function S.tick(seed, slot)
+    if capture and not capture.done then
+        local okR, raz = pcall(FindFirstOf, "P2CharacterRaz")
+        if okR and U.valid(raz) then pcall(captureTick, raz) end
+    end
     if not seed or seed.startAt ~= "motherlobe" or state == "done" then return end
     if state == "idle" then
         if U.exists(flagPath(slot)) then state = "done" return end
@@ -104,6 +160,7 @@ function S.tick(seed, slot)
         end
         U.log("Start at the Motherlobe: skipping Loboto's Labyrinth")
         advance(raz)
+        if not U.exists(TEMPLATE) then capture = { slot = slot } end
         U.writeAll(flagPath(slot), os.date("%Y-%m-%d %H:%M:%S"))
         state, advancedAt = "advanced", os.time()
         return

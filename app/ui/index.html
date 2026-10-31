@@ -196,7 +196,7 @@ details.adv[open] summary{margin-bottom:8px}
       <fieldset>
         <legend>Start</legend>
         <label class="check"><input type="checkbox" id="startMotherlobe"> Start at the Motherlobe (skip Loboto's Labyrinth)</label>
-        <p class="hint">After choosing New Game you'll be moved to the Motherlobe a few seconds into Loboto's Labyrinth. Its collectibles are left out of the shuffle, so nothing you need is stranded there.</p>
+        <p class="hint" id="startHint">Loboto's Labyrinth is marked complete and its collectibles are left out of the shuffle.</p>
       </fieldset>
       <fieldset>
         <legend>Seed</legend>
@@ -308,6 +308,9 @@ function renderGo(){
      s.randomized ? `${s.label} is randomized with seed “${s.seed}” and hasn't been started yet. You can roll a new seed, or start a New Game in this slot.` :
      `${s.label} will be randomized. Afterwards, start a New Game in ${s.label}.`);
   $('#go').classList.toggle('hidden', !!(s && s.exists));
+  $('#startHint').textContent = state.hasTemplate
+    ? "The slot gets a save that starts at the Motherlobe with Loboto's Labyrinth already complete: choose Continue in that slot. Loboto's collectibles are left out of the shuffle."
+    : "The first time, choose New Game: a few seconds into Loboto's Labyrinth you're moved to the Motherlobe, and the game's save there is kept, so later randomized slots simply Continue at the Motherlobe. Loboto's collectibles are left out of the shuffle.";
   $('#unrando').classList.toggle('hidden', !(s && s.randomized));
   $('#showSpoiler').classList.toggle('hidden', !(s && s.randomized));
   $('#s3').classList.toggle('done', selSlot!==null);
@@ -374,7 +377,7 @@ guard($('#go'), async () => {
   await refresh(false);
   $('#result').innerHTML = `<div class="result"><h3>Slot ${selSlot+1} is randomized</h3>
     <p>Seed <b>${r.seed}</b>: ${r.stats.locations} items shuffled between ${r.stats.locations} spots, ${r.stats.crossLevel} of them into another level.</p>
-    <p class="hint">Launch the game, choose New Game and pick ${state.slots[selSlot].label}. Press Ctrl+F8 in-game to confirm the seed is active (shown in the UE4SS console).</p></div>`;
+    <p class="hint">${(r.startsFrom||'').startsWith('motherlobe') ? `Launch the game and choose Continue on ${state.slots[selSlot].label}: you start at the Motherlobe with Loboto's Labyrinth complete.` : `Launch the game, choose New Game and pick ${state.slots[selSlot].label}.`} Press Ctrl+F8 in-game to confirm the seed is active (shown in the UE4SS console).</p></div>`;
 });
 guard($('#unrando'), async () => { await api('/api/unrandomize', {Slot: selSlot}); $('#result').innerHTML = `<div class="note">Slot ${selSlot+1} plays normally again.</div>`; $('#spoiler').classList.add('hidden'); await refresh(false); });
 guard($('#showSpoiler'), async () => {
