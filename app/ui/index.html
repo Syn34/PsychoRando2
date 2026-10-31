@@ -71,7 +71,10 @@ header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;
 .slot .areas{margin-top:10px;font-size:13px;color:var(--muted);max-height:60px;overflow:hidden}
 .tag{display:inline-block;border-radius:999px;padding:2px 10px;font-size:13px;font-weight:700;margin-top:10px}
 .tag.rando{background:var(--gold);color:#3B2A00}
-.tag.empty{background:var(--panel-2);color:var(--muted)}
+.tag.empty{background:var(--psi);color:#0E3330}
+.tag.locked{background:var(--panel-2);color:var(--muted)}
+.slot.locked{opacity:.6;cursor:not-allowed}
+.slot.locked:hover{border-color:var(--line)}
 
 .cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;margin:6px 0 16px}
 .cat{display:flex;gap:10px;align-items:flex-start;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px;cursor:pointer}
@@ -158,8 +161,8 @@ details.adv[open] summary{margin-bottom:8px}
   <section class="step" id="s3">
     <div class="num">3</div>
     <div>
-      <h2>Pick the save to randomize</h2>
-      <p class="lead">The randomizer only runs while this save slot is loaded. Empty slots work too: start a new game there after randomizing. On a save in progress, spots you've already collected are left alone so no item can be obtained twice. Your save files are backed up first.</p>
+      <h2>Pick an empty save slot</h2>
+      <p class="lead">Randomized games always start fresh. Pick an empty slot, randomize it, then choose New Game in that slot. Slots with a regular save can't be randomized, and the randomizer only runs while a randomized slot is loaded.</p>
       <div class="slots" id="slots"></div>
       <p class="err" id="slotErr"></p>
       <div class="row" style="margin-top:10px"><button class="btn" id="openSaves">Open save folder</button></div>
@@ -232,14 +235,16 @@ function renderSlots(){
   const box = $('#slots'); box.innerHTML = '';
   (state.slots||[]).forEach(s => {
     const b = document.createElement('button');
-    b.className = 'slot'; b.setAttribute('aria-pressed', selSlot===s.index);
+    const locked = s.exists && !s.randomized;
+    b.className = 'slot' + (locked ? ' locked' : ''); b.setAttribute('aria-pressed', selSlot===s.index);
+    if(locked) b.setAttribute('aria-disabled', 'true');
     const areas = s.areas && s.areas.length ? s.areas.join(', ') : '';
     b.innerHTML = `<span class="big" aria-hidden="true">${s.index+1}</span>
       <h3>${s.label}</h3>
       <div class="meta">${s.exists ? 'Last saved ' + fmtDate(s.modified) : 'No save yet'}</div>
       ${s.exists ? `<div class="areas">Visited: ${areas || 'unknown'}</div>` : ''}
-      ${s.randomized ? `<span class="tag rando">Randomized · ${s.seed}</span>` : (s.exists ? '' : '<span class="tag empty">Empty</span>')}`;
-    b.onclick = () => { selSlot = s.index; renderSlots(); renderGo(); };
+      ${s.randomized ? `<span class="tag rando">Randomized · ${s.seed}</span>` : (s.exists ? '<span class="tag locked">Regular save, can\'t be randomized</span>' : '<span class="tag empty">Empty, ready to randomize</span>')}`;
+    b.onclick = () => { if(locked) return; selSlot = s.index; renderSlots(); renderGo(); };
     box.appendChild(b);
   });
   $('#slotErr').textContent = state.slotError || '';
@@ -288,13 +293,16 @@ function renderScan(){
 }
 
 function renderGo(){
-  const ready = !!state.scan.summary && selSlot !== null;
+  const s0 = selSlot!==null ? state.slots[selSlot] : null;
+  const ready = !!state.scan.summary && !!s0 && !s0.exists;
   $('#go').disabled = !ready;
   const s = selSlot!==null ? state.slots[selSlot] : null;
   $('#go').textContent = s ? `Randomize ${s.label}` : 'Randomize slot';
-  $('#goText').textContent =
-    (s ? (s.randomized ? `${s.label} already uses seed “${s.seed}”. Randomizing again replaces it; items you already collected stay collected.` :
-      `${s.label} will be randomized. Load it in-game and start collecting.`) : 'Pick a save slot above first.');
+  $('#goText').textContent = !s ? 'Pick an empty save slot above first.' :
+    (s.randomized && s.exists ? `${s.label} is a randomized game in progress (seed “${s.seed}”). Load it in-game to keep playing.` :
+     s.randomized ? `${s.label} is randomized with seed “${s.seed}” and hasn't been started yet. You can roll a new seed, or start a New Game in this slot.` :
+     `${s.label} will be randomized. Afterwards, start a New Game in ${s.label}.`);
+  $('#go').classList.toggle('hidden', !!(s && s.exists));
   $('#unrando').classList.toggle('hidden', !(s && s.randomized));
   $('#showSpoiler').classList.toggle('hidden', !(s && s.randomized));
   $('#s3').classList.toggle('done', selSlot!==null);
@@ -359,8 +367,8 @@ guard($('#go'), async () => {
   $('#seed').value = r.seed;
   await refresh(false);
   $('#result').innerHTML = `<div class="result"><h3>Slot ${selSlot+1} is randomized</h3>
-    <p>Seed <b>${r.seed}</b>: ${r.stats.locations} items shuffled between ${r.stats.locations} spots, ${r.stats.crossLevel} of them into another level.${r.stats.alreadyCollected ? ` ${r.stats.alreadyCollected} spots you'd already collected stay as they were, so nothing can be picked up twice.` : ''}</p>
-    <p class="hint">Saves backed up to ${r.backup || '(slot was empty)'}.<br>Launch the game and load ${state.slots[selSlot].label}. Press Ctrl+F8 in-game to confirm the seed is active (shown in the UE4SS console).</p></div>`;
+    <p>Seed <b>${r.seed}</b>: ${r.stats.locations} items shuffled between ${r.stats.locations} spots, ${r.stats.crossLevel} of them into another level.</p>
+    <p class="hint">Launch the game, choose New Game and pick ${state.slots[selSlot].label}. Press Ctrl+F8 in-game to confirm the seed is active (shown in the UE4SS console).</p></div>`;
 });
 guard($('#unrando'), async () => { await api('/api/unrandomize', {Slot: selSlot}); $('#result').innerHTML = `<div class="note">Slot ${selSlot+1} plays normally again.</div>`; $('#spoiler').classList.add('hidden'); await refresh(false); });
 guard($('#showSpoiler'), async () => {

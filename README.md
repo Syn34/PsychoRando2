@@ -17,8 +17,8 @@ Figments, PSI Cards, PSI Challenge Markers, Half-a-Minds, Supply Chest Keys, Mem
 1. Run `PsychoRando.exe`. Point it at your game folder and your save folder (`%LOCALAPPDATA%\Psychonauts2\Saved\SaveGames`). Both are detected automatically.
 2. Click **Install the mod**. This copies the Lua mod into `Mods/PsychoRando` and enables it in `mods.txt`.
 3. Collectibles are built in (1,611, captured from a full in-game scan), so no scan is needed. **Rescan** (under step 2) is only for after a game update.
-4. Pick a save slot (1–3), choose categories and options, then click **Randomize**. Your save files are backed up to `Mods/PsychoRando/backups` first.
-5. Load that slot in-game. The randomizer is only active on randomized slots. Ctrl+F8 prints the active seed to the UE4SS console. Received items are logged to `Mods/PsychoRando/psychorando.log`.
+4. Pick an **empty** save slot (1–3), choose categories and options, then click **Randomize**. Slots that already hold a regular save cannot be randomized; randomized games always start from New Game.
+5. Start a New Game in that slot. The randomizer is only active on randomized slots. Ctrl+F8 prints the active seed to the UE4SS console. Received items are logged to `Mods/PsychoRando/psychorando.log`.
 
 ### Options
 

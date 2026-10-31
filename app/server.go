@@ -267,6 +267,14 @@ func (a *App) routes() http.Handler {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		p := a.cfg.Paths
+		if req.Slot < 0 || req.Slot > 2 {
+			writeErr(w, fmt.Errorf("invalid save slot"))
+			return
+		}
+		if len(slotFiles(p.SaveDir, req.Slot)) > 0 {
+			writeErr(w, fmt.Errorf("Slot %d already has a save. Only empty slots can be randomized: pick an empty slot, randomize it, then start a New Game in that slot", req.Slot+1))
+			return
+		}
 		gd := LoadActiveGameData(p.DataDir())
 		if req.Options.Seed == "" {
 			req.Options.Seed = RandomSeedName()
