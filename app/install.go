@@ -147,6 +147,10 @@ func InstallMod(p Paths) error {
 	if err != nil {
 		return err
 	}
+	// files older versions left behind
+	for _, f := range []string{"Scripts/luac.out", "data/template_motherlobe.sav", "data/template_motherlobe.json", "data/debug_menu.txt"} {
+		_ = os.Remove(filepath.Join(p.ModDir(), filepath.FromSlash(f)))
+	}
 	for _, d := range []string{"data", "seeds", "backups"} {
 		if err := os.MkdirAll(filepath.Join(p.ModDir(), d), 0o755); err != nil {
 			return err

@@ -127,7 +127,7 @@ func (a *App) routes() http.Handler {
 			"scan":        a.scanStatus(),
 			"options":     opts,
 			"categories":  Categories,
-			"hasTemplate": func() bool { b, _ := MotherlobeTemplate(p.DataDir()); return b != nil }(),
+			"hasTemplate": true,
 		}
 		if slotErr != nil {
 			resp["slotError"] = slotErr.Error()
@@ -272,6 +272,10 @@ func (a *App) routes() http.Handler {
 			writeErr(w, fmt.Errorf("invalid save slot"))
 			return
 		}
+		// An unplayed randomized slot (still PsychoRando's own starting save) can be re-rolled
+		if SlotUntouched(p.SaveDir, p.ModDir(), req.Slot) {
+			RemoveUntouchedStart(p.SaveDir, p.ModDir(), req.Slot)
+		}
 		if len(slotFiles(p.SaveDir, req.Slot)) > 0 {
 			writeErr(w, fmt.Errorf("Slot %d already has a save. Only empty slots can be randomized: pick an empty slot, randomize it, then start a New Game in that slot", req.Slot+1))
 			return
@@ -300,17 +304,22 @@ func (a *App) routes() http.Handler {
 			writeErr(w, err)
 			return
 		}
-		// Motherlobe start: write the captured starting save so the slot just continues there
+		// Motherlobe start: the slot gets a save that resumes at the Motherlobe
 		startsFrom := "beginning"
 		if req.Options.StartMotherlobe {
-			startsFrom = "in-game skip"
-			if tpl, src := MotherlobeTemplate(p.DataDir()); tpl != nil {
-				if err := WriteStartingSave(p.SaveDir, req.Slot, tpl); err != nil {
-					writeErr(w, fmt.Errorf("could not write the Motherlobe starting save: %w", err))
-					return
-				}
-				startsFrom = "motherlobe save (" + src + ")"
+			tpl, err := MotherlobeTemplate()
+			if err == nil {
+				bdir := filepath.Join(p.ModDir(), "backups", time.Now().Format("20060102-150405")+fmt.Sprintf("_slot%d_leftovers", req.Slot+1))
+				err = WriteStartingSave(p.SaveDir, bdir, req.Slot, tpl)
 			}
+			if err == nil {
+				RecordStartingSave(p.ModDir(), req.Slot, tpl)
+			}
+			if err != nil {
+				writeErr(w, fmt.Errorf("could not write the Motherlobe starting save: %w", err))
+				return
+			}
+			startsFrom = "motherlobe"
 		}
 		a.cfg.Options = req.Options
 		SaveConfig(a.cfg)
@@ -327,6 +336,8 @@ func (a *App) routes() http.Handler {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		base := filepath.Join(a.cfg.Paths.ModDir(), "seeds", fmt.Sprintf("slot_%d", req.Slot))
+		RemoveUntouchedStart(a.cfg.Paths.SaveDir, a.cfg.Paths.ModDir(), req.Slot)
+		_ = os.Remove(base + "_started.txt")
 		_ = os.Remove(base + ".lua")
 		_ = os.Remove(base + "_spoiler.txt")
 		_ = os.Remove(base + ".json")

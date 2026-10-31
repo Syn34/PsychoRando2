@@ -24,6 +24,8 @@ type SaveSlot struct {
 	Areas      []string  `json:"areas"`
 	Randomized bool      `json:"randomized"`
 	Seed       string    `json:"seed"`
+	Unplayed   bool      `json:"unplayed"` // still PsychoRando's own starting save
+	Resumes    string    `json:"resumes"`  // map the save continues in
 }
 
 var reMapRef = regexp.MustCompile(`/Game/Maps/([A-Za-z0-9_]+)/`)
@@ -65,6 +67,12 @@ func ListSlots(saveDir, modDir string) ([]SaveSlot, error) {
 		if seed := readSeedName(modDir, i); seed != "" {
 			s.Randomized = true
 			s.Seed = seed
+			s.Unplayed = s.Exists && SlotUntouched(saveDir, modDir, i)
+		}
+		if newest != "" {
+			if b, err := os.ReadFile(newest); err == nil {
+				s.Resumes = LevelName(mapCode(SaveCurrentMap(b)))
+			}
 		}
 		slots = append(slots, s)
 	}
@@ -208,4 +216,12 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+// mapCode turns "/Game/Maps/HQIN/HQIN.HQIN" into "HQIN".
+func mapCode(path string) string {
+	if m := reMapRef.FindStringSubmatch(path); m != nil {
+		return m[1]
+	}
+	return ""
 }

@@ -240,15 +240,16 @@ function renderSlots(){
   const box = $('#slots'); box.innerHTML = '';
   (state.slots||[]).forEach(s => {
     const b = document.createElement('button');
-    const locked = s.exists && !s.randomized;
+    const locked = s.exists && !s.unplayed && !s.randomized;
     b.className = 'slot' + (locked ? ' locked' : ''); b.setAttribute('aria-pressed', selSlot===s.index);
     if(locked) b.setAttribute('aria-disabled', 'true');
     const areas = s.areas && s.areas.length ? s.areas.join(', ') : '';
     b.innerHTML = `<span class="big" aria-hidden="true">${s.index+1}</span>
       <h3>${s.label}</h3>
-      <div class="meta">${s.exists ? 'Last saved ' + fmtDate(s.modified) : 'No save yet'}</div>
-      ${s.exists ? `<div class="areas">Visited: ${areas || 'unknown'}</div>` : ''}
-      ${s.randomized ? `<span class="tag rando">Randomized · ${s.seed}</span>` : (s.exists ? '<span class="tag locked">Regular save, can\'t be randomized</span>' : '<span class="tag empty">Empty, ready to randomize</span>')}`;
+      <div class="meta">${s.unplayed ? 'Starting save ready, not played yet' : s.exists ? 'Last saved ' + fmtDate(s.modified) : 'No save files'}</div>
+      ${s.exists && s.resumes ? `<div class="areas">Continues in: ${s.resumes}</div>` : ''}
+      ${s.exists && !s.unplayed ? `<div class="areas">Visited: ${areas || 'unknown'}</div>` : ''}
+      ${s.randomized ? `<span class="tag rando">Randomized · ${s.seed}${s.exists ? '' : ' · no save yet'}</span>` : (s.exists ? '<span class="tag locked">Regular save, can\'t be randomized</span>' : '<span class="tag empty">Empty, ready to randomize</span>')}`;
     b.onclick = () => { if(locked) return; selSlot = s.index; renderSlots(); renderGo(); };
     box.appendChild(b);
   });
@@ -299,18 +300,17 @@ function renderScan(){
 
 function renderGo(){
   const s0 = selSlot!==null ? state.slots[selSlot] : null;
-  const ready = !!state.scan.summary && !!s0 && !s0.exists;
+  const ready = !!state.scan.summary && !!s0 && (!s0.exists || s0.unplayed);
   $('#go').disabled = !ready;
   const s = selSlot!==null ? state.slots[selSlot] : null;
   $('#go').textContent = s ? `Randomize ${s.label}` : 'Randomize slot';
   $('#goText').textContent = !s ? 'Pick an empty save slot above first.' :
-    (s.randomized && s.exists ? `${s.label} is a randomized game in progress (seed “${s.seed}”). Load it in-game to keep playing.` :
-     s.randomized ? `${s.label} is randomized with seed “${s.seed}” and hasn't been started yet. You can roll a new seed, or start a New Game in this slot.` :
+    (s.unplayed ? `${s.label} is randomized with seed “${s.seed}” and ready: choose Continue on ${s.label} in-game. You can also randomize it again with new options.` :
+     s.randomized && s.exists ? `${s.label} is a randomized game in progress (seed “${s.seed}”). Load it in-game to keep playing.` :
+     s.randomized ? `${s.label} has seed “${s.seed}” but no save files (the save was deleted or New Game hasn't been played yet). Randomize it again to start over.` :
      `${s.label} will be randomized. Afterwards, start a New Game in ${s.label}.`);
-  $('#go').classList.toggle('hidden', !!(s && s.exists));
-  $('#startHint').textContent = state.hasTemplate
-    ? "The slot gets a save that starts at the Motherlobe with Loboto's Labyrinth already complete: choose Continue in that slot. Loboto's collectibles are left out of the shuffle."
-    : "The first time, choose New Game: a few seconds into Loboto's Labyrinth you're moved to the Motherlobe, and the game's save there is kept, so later randomized slots simply Continue at the Motherlobe. Loboto's collectibles are left out of the shuffle.";
+  $('#go').classList.toggle('hidden', !!(s && s.exists && !s.unplayed));
+  $('#startHint').textContent = "The slot gets a save that continues at the Motherlobe atrium with Loboto's Labyrinth complete: in-game choose Continue on that slot, not New Game. Loboto's collectibles are left out of the shuffle.";
   $('#unrando').classList.toggle('hidden', !(s && s.randomized));
   $('#showSpoiler').classList.toggle('hidden', !(s && s.randomized));
   $('#s3').classList.toggle('done', selSlot!==null);
@@ -350,6 +350,8 @@ async function refresh(full){
   if(running && !poll) poll = setInterval(()=>refresh(false).catch(()=>{}), 2000);
   if(!running && poll){ clearInterval(poll); poll = null; }
 }
+// saves may be changed while the app is open (deleted, or played in-game)
+window.addEventListener('focus', () => refresh(false).catch(()=>{}));
 
 function guard(btn, fn){ btn.addEventListener('click', async () => {
   btn.disabled = true;
@@ -377,7 +379,7 @@ guard($('#go'), async () => {
   await refresh(false);
   $('#result').innerHTML = `<div class="result"><h3>Slot ${selSlot+1} is randomized</h3>
     <p>Seed <b>${r.seed}</b>: ${r.stats.locations} items shuffled between ${r.stats.locations} spots, ${r.stats.crossLevel} of them into another level.</p>
-    <p class="hint">${(r.startsFrom||'').startsWith('motherlobe') ? `Launch the game and choose Continue on ${state.slots[selSlot].label}: you start at the Motherlobe with Loboto's Labyrinth complete.` : `Launch the game, choose New Game and pick ${state.slots[selSlot].label}.`} Press Ctrl+F8 in-game to confirm the seed is active (shown in the UE4SS console).</p></div>`;
+    <p class="hint">${(r.startsFrom||'').startsWith('motherlobe') ? `A starting save was written to ${state.slots[selSlot].label}. Launch the game and choose <b>Continue</b> on ${state.slots[selSlot].label} (not New Game): you start in the Motherlobe atrium with Loboto's Labyrinth complete.` : `Launch the game, choose New Game and pick ${state.slots[selSlot].label}.`} Press Ctrl+F8 in-game to confirm the seed is active (shown in the UE4SS console).</p></div>`;
 });
 guard($('#unrando'), async () => { await api('/api/unrandomize', {Slot: selSlot}); $('#result').innerHTML = `<div class="note">Slot ${selSlot+1} plays normally again.</div>`; $('#spoiler').classList.add('hidden'); await refresh(false); });
 guard($('#showSpoiler'), async () => {
