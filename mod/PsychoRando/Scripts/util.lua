@@ -98,6 +98,20 @@ end
 
 function U.list() return { __array = true } end
 
+-- Readable text for any error value (UE4SS sometimes raises non-string errors)
+function U.errText(e)
+    if type(e) == "string" then return e end
+    if type(e) == "function" then
+        local info = debug and debug.getinfo and debug.getinfo(e, "S")
+        local okc, r = pcall(e)
+        return string.format("function error (%s:%s) -> %s", info and info.short_src or "?",
+            info and info.linedefined or "?", okc and tostring(r) or ("raised " .. tostring(r)))
+    end
+    local okS, s = pcall(function() return e:ToString() end)
+    if okS and s then return s end
+    return type(e) .. ":" .. tostring(e)
+end
+
 -- Minimal JSON encoder (strings, numbers, booleans, arrays, objects)
 local function esc(s)
     s = s:gsub('[%c"\\]', function(c)

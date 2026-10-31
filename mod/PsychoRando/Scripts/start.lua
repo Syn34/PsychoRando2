@@ -37,8 +37,69 @@ end
 local function tryCall(what, fn)
     local ok, err = pcall(fn)
     if ok then U.log("start: %s ok", what) return true end
-    U.log("start: %s failed (%s)", what, type(err) == "string" and err or type(err))
+    U.log("start: %s failed: %s", what, U.errText(err))
     return false
+end
+
+-- ---------------------------------------------------------------------------
+-- The developers' debug menu (P2CheatManager) has a Checkpoints page whose
+-- entries jump to a story point and set the game state to match. All of its
+-- calls take plain strings/names, which UE4SS 3.0.1 handles reliably.
+local function strList(arr)
+    local out = {}
+    if arr == nil then return out end
+    if type(arr) == "table" then
+        for _, v in ipairs(arr) do out[#out + 1] = U.fname(v) or tostring(v) end
+        return out
+    end
+    U.eachArray(arr, function(_, v) out[#out + 1] = U.fname(v) or tostring(v) end)
+    return out
+end
+
+local function cheatManager()
+    local pc = FindFirstOf("PlayerController")
+    if not U.valid(pc) then return nil end
+    local cm = U.get(pc, "CheatManager")
+    if U.valid(cm) then return cm end
+    pcall(function()
+        U.resolve("/Script/Engine.Default__KismetSystemLibrary"):ExecuteConsoleCommand(pc, "EnableCheats", pc)
+    end)
+    cm = U.get(pc, "CheatManager")
+    if U.valid(cm) then return cm end
+    return FindFirstOf("P2CheatManager")
+end
+
+local CHECKPOINT_PREFS = { "1005", "CHECKINFRONTDESK", "FRONTDESK", "HUB1_1010", "INTERNSTART", "HQIN", "MOTHERLOBE", "HUB1" }
+
+local function viaDebugMenu()
+    local cm = cheatManager()
+    if not cm then U.log("start: no cheat manager available") return false end
+    pcall(function() cm:LoadDebugMenuContent() end)
+    local lines = {}
+    local okT, titles = pcall(function() return strList(cm:GetDebugMenuPageTitles()) end)
+    if not okT then U.log("start: debug menu titles failed: %s", U.errText(titles)) return false end
+    local cpPage
+    for _, t in ipairs(titles) do
+        lines[#lines + 1] = "PAGE " .. t
+        if t:upper():find("CHECKPOINT") then cpPage = t end
+        local okF, fns = pcall(function() return strList(cm:GetFunctionsForPage(t)) end)
+        if okF then for _, f in ipairs(fns) do lines[#lines + 1] = "  " .. f end end
+    end
+    U.writeAll(U.ROOT .. "data/debug_menu.txt", table.concat(lines, "\n"))
+    U.log("start: debug menu has %d pages (list saved to data/debug_menu.txt)", #titles)
+    if not cpPage then U.log("start: no Checkpoints page in the debug menu") return false end
+    local fns = strList(cm:GetFunctionsForPage(cpPage))
+    local pick
+    for _, pref in ipairs(CHECKPOINT_PREFS) do
+        for _, f in ipairs(fns) do
+            local up = f:upper()
+            if up:find(pref, 1, true) and not up:find("LOBO", 1, true) then pick = f break end
+        end
+        if pick then break end
+    end
+    if not pick then U.log("start: no Motherlobe checkpoint among %d checkpoints", #fns) return false end
+    U.log("start: using checkpoint '%s'", pick)
+    return tryCall("debug checkpoint " .. pick, function() cm:CallVoidFunctionOnPage(cpPage, FName(pick)) end)
 end
 
 local state = "idle"     -- idle -> waiting -> advanced -> done
@@ -63,14 +124,14 @@ local function questComplete(raz, path)
 end
 
 local function advance(raz)
+    if viaDebugMenu() then return true end
     local L = lib()
     if not L then return false end
     for i, q in ipairs(softForms(QUEST_TARGET)) do
-        for _, root in ipairs(softForms(QUEST_ROOT)) do
-            if tryCall("DebugAdvanceToQuest (form " .. i .. ")", function()
-                L:DebugAdvanceToQuest(q, root, raz, false)
-            end) then return true end
-        end
+        local root = softForms(QUEST_ROOT)[i]
+        if tryCall("DebugAdvanceToQuest (form " .. i .. ")", function()
+            L:DebugAdvanceToQuest(q, root, raz, false)
+        end) then return true end
     end
     return false
 end

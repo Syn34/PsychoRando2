@@ -54,10 +54,7 @@ local function actorTransform(actor)
     }
 end
 
-local function errText(e)
-    if type(e) == "string" then return e end
-    return type(e) .. ":" .. tostring(e)
-end
+local function errText(e) return U.errText(e) end
 
 local function step(what, fn)
     local ok, r = pcall(fn)
