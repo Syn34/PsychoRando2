@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -117,6 +118,34 @@ func readSeedName(modDir string, slot int) string {
 		return string(bytes.ReplaceAll(m[1], []byte(`\"`), []byte(`"`)))
 	}
 	return "?"
+}
+
+var rePkgRef = regexp.MustCompile(`/Game/Maps/[A-Za-z0-9_/]+`)
+
+// MapPackagesFromSaves collects every level package name mentioned in the
+// save files. The in-game scanner uses this as its starting list of maps.
+func MapPackagesFromSaves(saveDir string) []string {
+	seen := map[string]bool{}
+	entries, _ := os.ReadDir(saveDir)
+	for _, e := range entries {
+		n := strings.ToLower(e.Name())
+		if e.IsDir() || !(strings.HasSuffix(n, ".sav") || strings.HasSuffix(n, ".bak")) {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(saveDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		for _, m := range rePkgRef.FindAll(b, -1) {
+			seen[string(m)] = true
+		}
+	}
+	var out []string
+	for p := range seen {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // BackupSlot copies a slot's save files into the mod's backups folder.

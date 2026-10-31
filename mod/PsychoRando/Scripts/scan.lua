@@ -10,6 +10,7 @@ local U = require("util")
 
 local S = {}
 
+local SeenItems -- set below
 local DATA = U.ROOT .. "data/"
 local F_ITEMS = DATA .. "scan_items.jsonl"
 local F_LOCS = DATA .. "scan_locations.jsonl"
@@ -29,8 +30,24 @@ local SKIP_FOLDERS = { "TEST", "GYM", "SANDBOX", "PROTO", "DEMO", "_DEV", "/DEV/
 local FALLBACK_PERSISTENT = {
     "LOBO/LOBO", "QUAR/QUAR", "QAEX/QAEX", "HQIN/HQIN", "HUB2/HUB2", "FORB/FORB", "FORC/FORC",
     "FORG/FORG", "FORH/FORH", "FORV/FORV", "CASS/CASS", "COMPT/COMPT", "HELM/HELM", "BOBZ/BOBZ",
-    "GRIS/GRIS", "MALI/MALI", "BOSS_MALI/BOSS_MALI", "COLU/COLU", "HOLL/HOLL",
+    "GRIS/GRIS", "MALI/MALI", "BOSS_MALI/BOSS_MALI", "COLU/COLU",
+    "HOLL/HOLL_CASINO/HOLL_CASINO", "HOLL/HOLL_CLASS/HOLL_CLASS", "HOLL/HOLL_REAL_A/HOLL_REAL_A",
+    "HOLL/HOLL_REAL_B/HOLL_REAL_B",
 }
+
+-- Item paths that every collectible category uses (no AssetRegistry needed)
+local KNOWN_ITEMS = {
+    "/Game/Gameplay/Inventory/Upgrades/Minds/INV_Mind_HP.INV_Mind_HP",
+    "/Game/Gameplay/Inventory/Experience/INV_PsiChallengeCard.INV_PsiChallengeCard",
+    "/Game/Gameplay/Inventory/Experience/INV_PsiChallengeCore.INV_PsiChallengeCore",
+    "/Game/Gameplay/Inventory/INV_PSIMarker.INV_PSIMarker",
+    "/Game/Gameplay/Inventory/INV_NuggetOfWisdom.INV_NuggetOfWisdom",
+    "/Game/Gameplay/Inventory/SupplyChest/INV_SupplyChestKey_Base.INV_SupplyChestKey_Base",
+    "/Game/Gameplay/Inventory/INV_PlayerXP.INV_PlayerXP",
+}
+local VAULT_CODES = { "LOBO", "QUAR", "QAEX", "HQIN", "HUB2", "FORB", "FORC", "FORG", "FORH", "FORV", "FORD",
+    "CASS", "COMPT", "HELM", "BOBZ", "GRIS", "MALI", "COLU", "HOLL", "HOLL_CASINO", "HOLL_CLASS",
+    "HOLL_REAL_A", "HOLL_REAL_B" }
 
 local function shouldScan(pkg, fullScan)
     if not pkg:find("^/Game/Maps/") then return false end
@@ -55,69 +72,6 @@ local function appendLine(path, s)
     if f then f:write(s .. "\n") f:close() end
 end
 
-local function getAssetRegistry()
-    local reg = FindFirstOf("AssetRegistryImpl")
-    if U.valid(reg) then return reg end
-    local helpers = StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
-    if U.valid(helpers) then
-        local ok, r = pcall(function() return helpers:GetAssetRegistry() end)
-        if ok and r then
-            local ok2, inner = pcall(function() return r:get() end)
-            if ok2 and inner then r = inner end
-            if U.valid(r) then return r end
-        end
-    end
-    return nil
-end
-
--- Normalises an out-param array (Lua table or TArray) into a Lua list of FAssetData
-local function assetList(out, field)
-    local arr = out[field]
-    local list = {}
-    if arr == nil then return list end
-    if type(arr) == "table" then
-        for _, v in ipairs(arr) do list[#list + 1] = v end
-    else
-        U.eachArray(arr, function(_, v) list[#list + 1] = v end)
-    end
-    return list
-end
-
-local function assetDataFields(ad)
-    local pkg = U.fname(U.get(ad, "PackageName"))
-    local name = U.fname(U.get(ad, "AssetName"))
-    local cls = U.fname(U.get(ad, "AssetClass"))
-    return pkg, name, cls
-end
-
-local function listWorldPackages(reg)
-    local out = {}
-    local ok, err = pcall(function()
-        reg:GetAssetsByClass(FName("World"), out, false)
-    end)
-    if not ok then U.log("GetAssetsByClass failed: %s", tostring(err)) return nil end
-    local pkgs = {}
-    for _, ad in ipairs(assetList(out, "OutAssetData")) do
-        local pkg = assetDataFields(ad)
-        if pkg then pkgs[#pkgs + 1] = pkg end
-    end
-    return pkgs
-end
-
-local function listInventoryAssets(reg)
-    local out = {}
-    local ok, err = pcall(function()
-        reg:GetAssetsByPath(FName("/Game/Gameplay/Inventory"), out, true, false)
-    end)
-    if not ok then U.log("GetAssetsByPath failed: %s", tostring(err)) return {} end
-    local list = {}
-    for _, ad in ipairs(assetList(out, "OutAssetData")) do
-        local pkg, name, cls = assetDataFields(ad)
-        if pkg and name then list[#list + 1] = { pkg = pkg, name = name, cls = cls } end
-    end
-    return list
-end
-
 local function loadObject(objPath)
     local obj = StaticFindObject(objPath)
     if U.valid(obj) then return obj end
@@ -133,21 +87,6 @@ local function textOf(v)
     local ok, s = pcall(function() return v:ToString() end)
     if ok then return s end
     return nil
-end
-
--- Item catalogue: everything under /Game/Gameplay/Inventory that a collectible can grant
-local INTERESTING_ITEMS = {
-    "INV_VAULT_", "INV_BAGTAG_", "INV_SORTEDBAG_", "SCAVHUNTITEM_", "INV_MIND_",
-    "INV_PSICHALLENGE", "INV_PSIMARKER", "INV_NUGGETOFWISDOM", "INV_SUPPLYCHESTKEY",
-    "INV_PLAYERXP", "INV_UPGRADEPOINT", "INV_UNIQUE_", "INV_PSIMONEY",
-}
-local function interestingItem(name)
-    local up = name:upper()
-    if up:find("_BASE$") then return false end
-    for _, p in ipairs(INTERESTING_ITEMS) do
-        if up:find(p, 1, true) then return true end
-    end
-    return false
 end
 
 local function catalogueItem(objPath)
@@ -237,13 +176,32 @@ local function componentsByOwner(className, pkg)
     return map
 end
 
-local function scanPackage(pkg)
+local function expandStreaming(world, expand)
+    local levels = U.get(world, "StreamingLevels")
+    local n = 0
+    U.eachArray(levels, function(_, ls)
+        if U.valid(ls) then
+            local ok, fn = pcall(function() return ls:GetWorldAssetPackageFName() end)
+            local name = ok and U.fname(fn) or nil
+            if (not name or name == "None") then name = U.fname(U.get(ls, "PackageNameToLoad")) end
+            if name and name ~= "None" and name:find("^/Game/Maps/") then
+                expand(name)
+                n = n + 1
+            end
+        end
+    end)
+    return n
+end
+
+local function scanPackage(pkg, expand)
     local leaf = pkg:match("([^/]+)$")
     local world = loadObject(pkg .. "." .. leaf)
     if not world then
         U.log("  could not load %s", pkg)
         return 0, "load_failed"
     end
+    local okE, nsub = pcall(expandStreaming, world, expand)
+    if okE and nsub > 0 then U.log("     %d sublevels", nsub) end
     local collectables = FindAllOf("CoCollectable") or {}
     local pickupables = componentsByOwner("CoPickupable", pkg)
     local pickupables2 = componentsByOwner("COMP_Pickupable_C", pkg)
@@ -273,12 +231,55 @@ local function scanPackage(pkg)
                 end
                 rec.refs = inventoryRefs(actor)
                 rec.loc = vecOf(actor)
+                for _, g in ipairs(rec.grants or {}) do if g[1] ~= "None" then SeenItems[g[1]] = true end end
+                for _, r in ipairs(rec.refs) do if r[2]:find("/Inventory/") then SeenItems[r[2]] = true end end
                 appendLine(F_LOCS, U.json(rec))
                 count = count + 1
             end
         end
     end
     return count, nil
+end
+
+SeenItems = {}
+
+local function exists(path)
+    if U.valid(StaticFindObject(path)) then return true end
+    local ok, res = pcall(function() return LoadAsset(path) end)
+    if ok and U.valid(res) then return true end
+    return U.valid(StaticFindObject(path))
+end
+
+-- Builds the item catalogue from known paths, items seen during the scan and
+-- probing for numbered vaults / sorted bags. Includes items from a previous
+-- (resumed) run's locations file.
+local function catalogueAll()
+    local paths, order = {}, {}
+    local function add(p) if p and not paths[p] then paths[p] = true; order[#order + 1] = p end end
+    for _, p in ipairs(KNOWN_ITEMS) do add(p) end
+    for p in pairs(SeenItems) do add(p) end
+    local prev = U.readAll(F_LOCS) or ""
+    for p in prev:gmatch('"(/Game/Gameplay/Inventory/[^"]+)"') do add(p) end
+    -- sorted bag for every bag tag
+    for _, p in ipairs({ table.unpack(order) }) do
+        if p:find("INV_BagTag_") then add((p:gsub("INV_BagTag_", "INV_SortedBag_"))) end
+    end
+    -- numbered vaults
+    for _, code in ipairs(VAULT_CODES) do
+        local misses = 0
+        for i = 1, 20 do
+            local name = "INV_VAULT_" .. code .. "_" .. i
+            local p = "/Game/Gameplay/Inventory/Vault/" .. name .. "." .. name
+            if exists(p) then add(p); misses = 0 else misses = misses + 1 end
+            if misses >= 2 then break end
+        end
+    end
+    os.remove(F_ITEMS)
+    local n = 0
+    for _, p in ipairs(order) do
+        if exists(p) then catalogueItem(p); n = n + 1 end
+    end
+    return n
 end
 
 local function readProgress()
@@ -305,6 +306,8 @@ function S.run()
     local state = "wait"
     local waitTicks = 0
     local queue, qi = {}, 1
+    local allPkgs, doneSet = {}, {}
+    local itemSeen = {}
     local stats = { packages = 0, locations = 0, failed = 0 }
     local busy = false
     local startedAt = os.time()
@@ -316,38 +319,22 @@ function S.run()
         end
 
         if state == "discover" then
-            local reg = getAssetRegistry()
-            local pkgs = reg and listWorldPackages(reg) or nil
-            if not pkgs or #pkgs == 0 then
-                U.log("AssetRegistry unavailable; using fallback persistent map list")
-                pkgs = {}
-                for _, p in ipairs(FALLBACK_PERSISTENT) do pkgs[#pkgs + 1] = "/Game/Maps/" .. p end
-                stats.fallback = true
-            end
-            table.sort(pkgs)
-            local done = readProgress()
             local seen = {}
-            for _, p in ipairs(pkgs) do
-                if not seen[p] and shouldScan(p, fullScan) and not done[p] then
-                    queue[#queue + 1] = p
-                end
-                seen[p] = true
+            local function add(p)
+                p = p:gsub("%.[%w_]+$", "")
+                if not seen[p] then seen[p] = true; allPkgs[#allPkgs + 1] = p end
             end
-            U.log("World packages found: %d, queued this run: %d (already done: %d)",
-                #pkgs, #queue, (function() local n = 0 for _ in pairs(done) do n = n + 1 end return n end)())
-            appendLine(DATA .. "scan_worlds.txt", table.concat(pkgs, "\n"))
-
-            if not U.exists(F_ITEMS) and reg then
-                local inv = listInventoryAssets(reg)
-                local n = 0
-                for _, a in ipairs(inv) do
-                    if interestingItem(a.name) then
-                        catalogueItem(a.pkg .. "." .. a.name)
-                        n = n + 1
-                    end
-                end
-                U.log("Catalogued %d inventory items", n)
+            -- Map names supplied by the app (read from the save files), then the built-in list
+            for line in (U.readAll(F_REQUEST) or ""):gmatch("[^\r\n]+") do
+                if line:find("^/Game/Maps/") then add(line) end
             end
+            for _, p in ipairs(FALLBACK_PERSISTENT) do add("/Game/Maps/" .. p) end
+            table.sort(allPkgs)
+            doneSet = readProgress()
+            for _, p in ipairs(allPkgs) do
+                if shouldScan(p, fullScan) and not doneSet[p] then queue[#queue + 1] = p end
+            end
+            U.log("Map packages known: %d, queued this run: %d", #allPkgs, #queue)
             stats.total = #queue
             state = "scan"
             return
@@ -355,7 +342,7 @@ function S.run()
 
         if state == "scan" then
             if qi > #queue then
-                state = "finish"
+                state = "items"
                 return
             end
             local pkg = queue[qi]
@@ -364,7 +351,16 @@ function S.run()
             appendLine(F_PROGRESS, "try " .. pkg)
             writeStatus({ state = "scanning", index = qi - 1, total = #queue, current = pkg,
                 locations = stats.locations, elapsed = os.time() - startedAt })
-            local ok, n, err = pcall(scanPackage, pkg)
+            U.log("  -> %s", pkg)
+            local ok, n, err = pcall(scanPackage, pkg, function(sub)
+                sub = sub:gsub("%.[%w_]+$", "")
+                for _, p in ipairs(allPkgs) do if p == sub then return end end
+                allPkgs[#allPkgs + 1] = sub
+                if shouldScan(sub, fullScan) and not doneSet[sub] then
+                    queue[#queue + 1] = sub
+                    stats.total = #queue
+                end
+            end)
             if not ok then
                 U.log("  ERROR scanning %s: %s", pkg, tostring(n))
                 stats.failed = stats.failed + 1
@@ -380,6 +376,14 @@ function S.run()
                     StaticFindObject("/Script/Engine.Default__KismetSystemLibrary"):CollectGarbage()
                 end)
             end
+            return
+        end
+
+        if state == "items" then
+            U.log("Cataloguing items...")
+            local n = catalogueAll()
+            U.log("Catalogued %d inventory items", n)
+            state = "finish"
             return
         end
 

@@ -173,7 +173,8 @@ func (a *App) routes() http.Handler {
 		if req.Full {
 			mode = "full"
 		}
-		if err := os.WriteFile(filepath.Join(p.ModDir(), "scan_request.txt"), []byte(mode), 0o644); err != nil {
+		req2 := mode + "\n" + strings.Join(MapPackagesFromSaves(p.SaveDir), "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(p.ModDir(), "scan_request.txt"), []byte(req2), 0o644); err != nil {
 			writeErr(w, err)
 			return
 		}

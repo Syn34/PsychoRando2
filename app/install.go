@@ -98,9 +98,29 @@ func GetInstallState(p Paths) InstallState {
 
 // InstallMod copies the bundled Lua mod into the game's UE4SS Mods folder
 // and enables it in mods.txt (keeping the built-in Keybinds entry last).
+func versionLess(a, b string) bool {
+	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			fmt.Sscan(pa[i], &x)
+		}
+		if i < len(pb) {
+			fmt.Sscan(pb[i], &y)
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
+}
+
 func InstallMod(p Paths) error {
 	if !fileExists(p.Win64()) {
 		return fmt.Errorf("game not found at %s", p.GameDir)
+	}
+	if iv := installedVersion(p); iv != "" && iv != "?" && versionLess(bundledVersion(), iv) {
+		return fmt.Errorf("a newer mod (%s) is already installed than this app contains (%s); use the newer PsychoRando.exe", iv, bundledVersion())
 	}
 	if err := os.MkdirAll(p.ModsDir(), 0o755); err != nil {
 		return err

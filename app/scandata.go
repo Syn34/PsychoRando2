@@ -149,6 +149,9 @@ func readJSONL[T any](path string) ([]T, error) {
 func levelOfPkg(pkg string) string {
 	// /Game/Maps/FORB/FORB_Collectibles -> FORB
 	parts := strings.Split(strings.TrimPrefix(pkg, "/Game/Maps/"), "/")
+	if len(parts) > 2 && strings.EqualFold(parts[0], "HOLL") {
+		return strings.ToUpper(parts[1]) // Hollis' areas are nested: HOLL/HOLL_CASINO/...
+	}
 	if len(parts) > 0 {
 		return strings.ToUpper(parts[0])
 	}
