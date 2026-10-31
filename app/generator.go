@@ -17,6 +17,10 @@ type Options struct {
 	Figments   string          `json:"figments"` // "mixed" or "separate"
 	Logic      bool            `json:"logic"`    // keep baggage/tag dependencies solvable
 	Levels     map[string]bool `json:"levels"`   // optional: only these levels (nil = all)
+
+	// Collected holds unique IDs already collected in the target save. Those
+	// spots (and the items they gave) are left out so nothing can be obtained twice.
+	Collected map[string]bool `json:"-"`
 }
 
 type Placement struct {
@@ -45,6 +49,7 @@ func Generate(gd *GameData, opt Options) (*SeedResult, error) {
 	rng := rngFor(opt.Seed)
 
 	var locs []*Location
+	skippedCollected := 0
 	for _, l := range gd.Locations {
 		if !opt.Categories[l.Cat] {
 			continue
@@ -54,6 +59,10 @@ func Generate(gd *GameData, opt Options) (*SeedResult, error) {
 		}
 		if len(l.Orig.Grants) == 0 && l.Cat != "figment" {
 			continue // unknown original reward: leave this location vanilla
+		}
+		if strings.HasPrefix(l.Key, "id:") && opt.Collected[strings.TrimPrefix(l.Key, "id:")] {
+			skippedCollected++
+			continue // already collected in this save: its item is already in the inventory
 		}
 		locs = append(locs, l)
 	}
@@ -98,6 +107,7 @@ func Generate(gd *GameData, opt Options) (*SeedResult, error) {
 		}
 	}
 	res.Stats["locations"] = len(res.Placements)
+	res.Stats["alreadyCollected"] = skippedCollected
 	return res, nil
 }
 
@@ -110,9 +120,17 @@ type poolItem struct {
 // Bag tags are placed first with assumed fill so that no baggage ends up
 // holding (directly or through a chain) the tag needed to open it.
 func fillPool(locs []*Location, rng *rand.Rand, logic bool) ([]Placement, error) {
+	// Requirements only count if the required item is itself being shuffled;
+	// otherwise the player already has it (collected) or gets it normally.
+	inPool := map[string]bool{}
+	for _, l := range locs {
+		for _, g := range l.Orig.Grants {
+			inPool[g.Path] = true
+		}
+	}
 	needed := map[string]bool{}
 	for _, l := range locs {
-		if l.Needs != "" {
+		if l.Needs != "" && inPool[l.Needs] {
 			needed[l.Needs] = true
 		}
 	}
@@ -195,6 +213,13 @@ func fillPool(locs []*Location, rng *rand.Rand, logic bool) ([]Placement, error)
 // reachable returns which locations can be collected given starting items,
 // picking up progression items from reachable assigned locations until stable.
 func reachable(locs []*Location, assigned map[*Location]poolItem, start map[string]bool, progOf func(Reward) string) map[*Location]bool {
+	// a requirement matters only if that item is a shuffled progression item
+	needed := map[string]bool{}
+	for _, l := range locs {
+		if l.Needs != "" && progOf(Reward{Grants: []Grant{{l.Needs, 1}}}) != "" {
+			needed[l.Needs] = true
+		}
+	}
 	owned := map[string]bool{}
 	for k, v := range start {
 		owned[k] = v
@@ -203,7 +228,7 @@ func reachable(locs []*Location, assigned map[*Location]poolItem, start map[stri
 	for changed := true; changed; {
 		changed = false
 		for _, l := range locs {
-			if reach[l] || (l.Needs != "" && !owned[l.Needs]) {
+			if reach[l] || (l.Needs != "" && needed[l.Needs] && !owned[l.Needs]) {
 				continue
 			}
 			reach[l] = true

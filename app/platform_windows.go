@@ -85,6 +85,9 @@ func OpenURL(target string) error {
 		return hiddenCmd("rundll32", "url.dll,FileProtocolHandler", target).Start()
 	}
 	if st, err := os.Stat(target); err == nil && !st.IsDir() {
+		if strings.HasSuffix(strings.ToLower(target), ".csv") {
+			return hiddenCmd("rundll32", "url.dll,FileProtocolHandler", target).Start() // default app (Excel)
+		}
 		return exec.Command("notepad.exe", target).Start()
 	}
 	return exec.Command("explorer.exe", target).Start()

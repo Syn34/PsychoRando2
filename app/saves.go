@@ -120,6 +120,33 @@ func readSeedName(modDir string, slot int) string {
 	return "?"
 }
 
+var reIDish = regexp.MustCompile(`[A-Za-z0-9_]{12,}`)
+
+// CollectedIDs returns every collectible unique ID the save has recorded as
+// collected (the game lists them under P2::Managers::Collectibles). Callers
+// intersect this with scanned IDs, so unrelated strings are harmless.
+func CollectedIDs(saveDir string, slot int) map[string]bool {
+	out := map[string]bool{}
+	var newest string
+	var newestT time.Time
+	for _, f := range slotFiles(saveDir, slot) {
+		if st, err := os.Stat(f); err == nil && st.ModTime().After(newestT) {
+			newest, newestT = f, st.ModTime()
+		}
+	}
+	if newest == "" {
+		return out
+	}
+	b, err := os.ReadFile(newest)
+	if err != nil {
+		return out
+	}
+	for _, m := range reIDish.FindAll(b, -1) {
+		out[string(m)] = true
+	}
+	return out
+}
+
 var rePkgRef = regexp.MustCompile(`/Game/Maps/[A-Za-z0-9_/]+`)
 
 // MapPackagesFromSaves collects every level package name mentioned in the

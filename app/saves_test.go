@@ -21,3 +21,15 @@ func TestMapPackagesFromSaves(t *testing.T) {
 		t.Error("HOLL grouping")
 	}
 }
+
+func TestCollectedIDsFromSave(t *testing.T) {
+	ids := CollectedIDs("/mnt/user-data/uploads/Psychonauts2/Saved/SaveGames", 2)
+	if len(ids) == 0 {
+		t.Skip("no sample saves")
+	}
+	for _, want := range []string{"LOBO_VAULT_CHR_Vault_4_3961715615", "COMPT_VAULT_CHR_Vault_2_789017961"} {
+		if !ids[want] {
+			t.Errorf("missing %s", want)
+		}
+	}
+}

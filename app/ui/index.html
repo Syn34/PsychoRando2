@@ -137,6 +137,7 @@ pre.spoiler{white-space:pre-wrap;background:#1A0F2B;border-radius:var(--r-sm);pa
         <button class="btn" id="launch">Launch Psychonauts 2</button>
         <button class="btn hidden" id="scanCancel">Cancel scan</button>
         <button class="btn hidden" id="scanFresh">Rescan from scratch</button>
+        <button class="btn hidden" id="exportBtn">Export collectibles list</button>
       </div>
       <div id="scanBox" class="hidden">
         <div class="bar"><i id="scanBar"></i></div>
@@ -150,7 +151,7 @@ pre.spoiler{white-space:pre-wrap;background:#1A0F2B;border-radius:var(--r-sm);pa
     <div class="num">3</div>
     <div>
       <h2>Pick the save to randomize</h2>
-      <p class="lead">The randomizer only runs while this save slot is loaded. Empty slots work too: start a new game there after randomizing. Your save files are backed up first.</p>
+      <p class="lead">The randomizer only runs while this save slot is loaded. Empty slots work too: start a new game there after randomizing. On a save in progress, spots you've already collected are left alone so no item can be obtained twice. Your save files are backed up first.</p>
       <div class="slots" id="slots"></div>
       <p class="err" id="slotErr"></p>
       <div class="row" style="margin-top:10px"><button class="btn" id="openSaves">Open save folder</button></div>
@@ -267,7 +268,8 @@ function renderScan(){
   }
   const sum = sc.summary, box = $('#scanSummary');
   if(sc.done && sum){
-    box.innerHTML = `<div class="note">Scan complete: <b>${sum.total}</b> collectibles across ${Object.keys(sum.byLevel).length} areas.</div>` +
+    const col = (sc.collected||[]).map((c,i)=> c ? `Slot ${i+1}: ${c.total||0} already collected` : null).filter(Boolean).join(' · ');
+    box.innerHTML = `<div class="note">Scan complete: <b>${sum.total}</b> collectibles across ${Object.keys(sum.byLevel).length} areas, collected or not.${col ? '<br>'+col+'.' : ''}${sc.export ? `<br>Full list saved to ${sc.export}` : ''}</div>` +
       (sum.warnings||[]).map(w=>`<div class="note warn">${w}. These stay in their original spots.</div>`).join('');
   } else if(st.state==='failed'){
     box.innerHTML = `<div class="note warn">The scan ran but found no collectibles. Open the mod folder and send psychorando.log so this can be fixed.</div>`;
@@ -275,6 +277,7 @@ function renderScan(){
     box.innerHTML = `<div class="note warn">The last scan didn't finish (the game may have closed or crashed). Start it again to resume where it stopped.</div>`;
   } else box.innerHTML = '';
   $('#s2').classList.toggle('done', !!sc.done);
+  $('#exportBtn').classList.toggle('hidden', !(sc.done && sum));
 }
 
 function renderGo(){
@@ -340,6 +343,7 @@ guard($('#install'), async () => { await api('/api/install', {}); await refresh(
 guard($('#scanStart'), async () => { await api('/api/scan/request', {fresh: !!(state.scan.done), full:false}); await refresh(false); });
 guard($('#scanFresh'), async () => { await api('/api/scan/request', {fresh:true, full:false}); await refresh(false); });
 guard($('#scanCancel'), async () => { await api('/api/scan/cancel', {}); await refresh(false); });
+guard($('#exportBtn'), async () => { const r = await api('/api/export', {}); $('#scanSummary').insertAdjacentHTML('beforeend', `<div class="note">Exported ${r.count} collectibles to ${r.path}</div>`); });
 guard($('#launch'), async () => { await api('/api/launch', {}); });
 guard($('#openSaves'), async () => { await api('/api/open', {What:'saves'}); });
 guard($('#rollSeed'), async () => { $('#seed').value = (await api('/api/randomseed')).seed; });
@@ -348,7 +352,7 @@ guard($('#go'), async () => {
   $('#seed').value = r.seed;
   await refresh(false);
   $('#result').innerHTML = `<div class="result"><h3>Slot ${selSlot+1} is randomized</h3>
-    <p>Seed <b>${r.seed}</b>: ${r.stats.locations} locations shuffled, ${r.stats.crossLevel} items moved to another level.</p>
+    <p>Seed <b>${r.seed}</b>: ${r.stats.locations} items shuffled between ${r.stats.locations} spots, ${r.stats.crossLevel} of them into another level.${r.stats.alreadyCollected ? ` ${r.stats.alreadyCollected} spots you'd already collected stay as they were, so nothing can be picked up twice.` : ''}</p>
     <p class="hint">Saves backed up to ${r.backup || '(slot was empty)'}.<br>Launch the game and load ${state.slots[selSlot].label}. Press Ctrl+F8 in-game to confirm the seed is active (shown in the UE4SS console).</p></div>`;
 });
 guard($('#unrando'), async () => { await api('/api/unrandomize', {Slot: selSlot}); $('#result').innerHTML = `<div class="note">Slot ${selSlot+1} plays normally again.</div>`; $('#spoiler').classList.add('hidden'); await refresh(false); });

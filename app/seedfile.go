@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -101,6 +102,13 @@ func WriteSeed(modDir string, slot int, gd *GameData, res *SeedResult) (seedPath
 	if err = os.Rename(tmp, seedPath); err != nil {
 		return
 	}
+	gives := map[string]string{}
+	for _, p := range res.Placements {
+		gives[p.Loc.Key] = p.Reward.Label
+	}
+	if jb, jerr := json.Marshal(map[string]interface{}{"seed": res.Options.Seed, "gives": gives}); jerr == nil {
+		_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("slot_%d.json", slot)), jb, 0o644)
+	}
 	spoilerPath = filepath.Join(dir, fmt.Sprintf("slot_%d_spoiler.txt", slot))
 	err = os.WriteFile(spoilerPath, []byte(Spoiler(slot, res)), 0o644)
 	return
@@ -122,7 +130,8 @@ func Spoiler(slot int, res *SeedResult) string {
 	}
 	sort.Strings(cats)
 	fmt.Fprintf(&b, "Randomized: %s\nScope: %s, figments: %s, logic: %v\n", strings.Join(cats, ", "), res.Options.Scope, res.Options.Figments, res.Options.Logic)
-	fmt.Fprintf(&b, "Locations: %d (moved %d, %d to another level)\n\n", res.Stats["locations"], res.Stats["moved"], res.Stats["crossLevel"])
+	fmt.Fprintf(&b, "Locations: %d (moved %d, %d to another level)\n", res.Stats["locations"], res.Stats["moved"], res.Stats["crossLevel"])
+	fmt.Fprintf(&b, "Already collected in this save (left as they were): %d\n\n", res.Stats["alreadyCollected"])
 
 	byLevel := map[string][]Placement{}
 	for _, p := range res.Placements {

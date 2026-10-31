@@ -46,7 +46,7 @@ local KNOWN_ITEMS = {
     "/Game/Gameplay/Inventory/INV_PlayerXP.INV_PlayerXP",
 }
 local VAULT_CODES = { "LOBO", "QUAR", "QAEX", "HQIN", "HUB2", "FORB", "FORC", "FORG", "FORH", "FORV", "FORD",
-    "CASS", "COMPT", "HELM", "BOBZ", "GRIS", "MALI", "COLU", "HOLL", "HOLL_CASINO", "HOLL_CLASS",
+    "CASS", "COMPT", "COMP", "HELM", "BOBZ", "GRIS", "MALI", "COLU", "HOLL", "HOLL_CASINO", "HOLL_CLASS",
     "HOLL_REAL_A", "HOLL_REAL_B" }
 
 local function shouldScan(pkg, fullScan)

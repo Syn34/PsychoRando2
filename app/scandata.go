@@ -68,17 +68,22 @@ type Reward struct {
 }
 
 type Location struct {
-	Key     string   `json:"key"`     // primary key (id:... or pa:...)
-	Aliases []string `json:"aliases"` // all keys that identify this location at runtime
-	Cat     string   `json:"cat"`
-	Level   string   `json:"level"` // map folder, e.g. FORB
-	Group   string   `json:"group"` // area group used for "within level" mode
-	Pkg     string   `json:"pkg"`
-	Actor   string   `json:"actor"`
-	Class   string   `json:"class"`
-	Orig    Reward   `json:"orig"`
-	Needs   string   `json:"needs,omitempty"` // item path required to collect (bag tag for baggage)
+	Key     string    `json:"key"`     // primary key (id:... or pa:...)
+	Aliases []string  `json:"aliases"` // all keys that identify this location at runtime
+	Cat     string    `json:"cat"`
+	Level   string    `json:"level"` // map folder, e.g. FORB
+	Group   string    `json:"group"` // area group used for "within level" mode
+	Pkg     string    `json:"pkg"`
+	Actor   string    `json:"actor"`
+	Class   string    `json:"class"`
+	Orig    Reward    `json:"orig"`
+	Needs   string    `json:"needs,omitempty"` // item path required to collect (bag tag for baggage)
+	ID      string    `json:"id"`
+	Pos     []float64 `json:"pos,omitempty"`
 }
+
+// UniqueID is the game's collectible ID ("" if the actor had none)
+func (l *Location) UniqueID() string { return l.ID }
 
 type GameData struct {
 	Locations []*Location
@@ -316,7 +321,10 @@ func buildGameData(gd *GameData, locs []ScanLoc) *GameData {
 		loc := &Location{
 			Key: key, Aliases: []string{key}, Cat: cat, Level: level, Group: level,
 			Pkg: l.Pkg, Actor: l.Actor, Class: l.Class,
-			Orig: Reward{Cat: cat, Grants: grants},
+			Orig: Reward{Cat: cat, Grants: grants}, Pos: l.Loc,
+		}
+		if l.ID != "None" {
+			loc.ID = l.ID
 		}
 		if pa != key {
 			loc.Aliases = append(loc.Aliases, pa)

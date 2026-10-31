@@ -55,6 +55,16 @@ type ScanStatus struct {
 	HasData   bool                   `json:"hasData"`
 	Status    map[string]interface{} `json:"status"`
 	Summary   *DataSummary           `json:"summary,omitempty"`
+	Collected []map[string]int       `json:"collected,omitempty"`
+	Export    string                 `json:"export,omitempty"`
+}
+
+func (a *App) exportPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return filepath.Join(a.cfg.Paths.ModDir(), "PsychoRando_collectibles.csv")
+	}
+	return filepath.Join(filepath.Dir(exe), "PsychoRando_collectibles.csv")
 }
 
 func (a *App) scanStatus() ScanStatus {
@@ -70,6 +80,17 @@ func (a *App) scanStatus() ScanStatus {
 		if gd, err := LoadGameData(p.DataDir()); err == nil {
 			sum := gd.Summary()
 			s.Summary = &sum
+			s.Collected = CollectedCounts(gd, p.SaveDir)
+			// write the export automatically the first time a finished scan is seen
+			out := a.exportPath()
+			doneSt, _ := os.Stat(filepath.Join(p.DataDir(), "scan_done.txt"))
+			outSt, err := os.Stat(out)
+			if err != nil || (doneSt != nil && outSt.ModTime().Before(doneSt.ModTime())) {
+				_, _ = ExportCollectibles(gd, p.SaveDir, p.ModDir(), out)
+			}
+			if fileExists(out) {
+				s.Export = out
+			}
 		}
 	}
 	return s
@@ -248,6 +269,7 @@ func (a *App) routes() http.Handler {
 		if req.Options.Seed == "" {
 			req.Options.Seed = RandomSeedName()
 		}
+		req.Options.Collected = CollectedIDs(p.SaveDir, req.Slot)
 		res, err := Generate(gd, req.Options)
 		if err != nil {
 			writeErr(w, err)
@@ -269,6 +291,7 @@ func (a *App) routes() http.Handler {
 		}
 		a.cfg.Options = req.Options
 		SaveConfig(a.cfg)
+		_, _ = ExportCollectibles(gd, p.SaveDir, p.ModDir(), a.exportPath())
 		writeJSON(w, map[string]interface{}{
 			"seed": res.Options.Seed, "stats": res.Stats, "seedFile": seedPath,
 			"spoilerFile": spoilerPath, "backup": backup,
@@ -283,6 +306,10 @@ func (a *App) routes() http.Handler {
 		base := filepath.Join(a.cfg.Paths.ModDir(), "seeds", fmt.Sprintf("slot_%d", req.Slot))
 		_ = os.Remove(base + ".lua")
 		_ = os.Remove(base + "_spoiler.txt")
+		_ = os.Remove(base + ".json")
+		if gd, err := LoadGameData(a.cfg.Paths.DataDir()); err == nil {
+			_, _ = ExportCollectibles(gd, a.cfg.Paths.SaveDir, a.cfg.Paths.ModDir(), a.exportPath())
+		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 
@@ -298,6 +325,25 @@ func (a *App) routes() http.Handler {
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write(b)
+	})
+
+	mux.HandleFunc("/api/export", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		p := a.cfg.Paths
+		gd, err := LoadGameData(p.DataDir())
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		out := a.exportPath()
+		n, err := ExportCollectibles(gd, p.SaveDir, p.ModDir(), out)
+		if err != nil {
+			writeErr(w, fmt.Errorf("could not write %s: %w (close it in Excel and try again)", out, err))
+			return
+		}
+		_ = OpenURL(out)
+		writeJSON(w, map[string]interface{}{"path": out, "count": n})
 	})
 
 	mux.HandleFunc("/api/randomseed", func(w http.ResponseWriter, r *http.Request) {

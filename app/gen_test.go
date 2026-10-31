@@ -87,3 +87,41 @@ func TestDeterministicAndComplete(t *testing.T) {
 		}
 	}
 }
+
+// Pure shuffle: every item appears exactly as many times as before, and
+// spots already collected in the save are never touched.
+func TestShuffleIsPermutation(t *testing.T) {
+	gd := testData(t)
+	opt := defaultOptions()
+	opt.Seed = "perm"
+	opt.Collected = map[string]bool{"FORB_FIG_3": true, "CASS_VAULT_1": true, "BOBZ_TAG_Suitcase": true}
+	res, err := Generate(gd, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, after := map[string]int{}, map[string]int{}
+	for _, p := range res.Placements {
+		for _, id := range []string{"id:FORB_FIG_3", "id:CASS_VAULT_1", "id:BOBZ_TAG_Suitcase"} {
+			if p.Loc.Key == id || p.From.Key == id {
+				t.Fatalf("collected spot %s was shuffled", id)
+			}
+		}
+		for _, g := range p.From.Orig.Grants {
+			before[g.Path] += g.Amount
+		}
+		for _, g := range p.Reward.Grants {
+			after[g.Path] += g.Amount
+		}
+	}
+	for k, v := range before {
+		if after[k] != v {
+			t.Errorf("%s: %d before, %d after", k, v, after[k])
+		}
+	}
+	if len(before) != len(after) {
+		t.Errorf("item kinds differ")
+	}
+	if res.Stats["alreadyCollected"] != 3 {
+		t.Errorf("alreadyCollected = %d", res.Stats["alreadyCollected"])
+	}
+}
