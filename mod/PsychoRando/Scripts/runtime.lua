@@ -355,12 +355,13 @@ end
 
 ---------------------------------------------------------------------------
 function R.start()
-    U.log("Runtime started")
+    U.log("Runtime started; waiting for the game to finish loading")
+    -- Safe before the gate: these only register callbacks, they don't search objects
     NotifyOnNewObject("/Script/Psychonauts2.CoCollectable", function(comp)
         if seed then pending[#pending + 1] = { comp = comp, t = now() } end
     end)
-
     RegisterHook("/Script/Engine.PlayerController:ClientRestart", function()
+        if not U.isReady() then return end
         ExecuteWithDelay(1500, function()
             ExecuteInGameThread(function()
                 pcall(refreshSeed)
@@ -370,21 +371,28 @@ function R.start()
         end)
     end)
 
-    local tick = 0
-    LoopAsync(250, function()
-        tick = tick + 1
-        ExecuteInGameThread(function()
-            if tick % 8 == 1 then pcall(refreshSeed) end
-            if tick % 40 == 2 then pcall(registerHooks) end
-            pcall(processPending)
+    U.onReady(function()
+        pcall(refreshSeed)
+        pcall(registerHooks)
+        pcall(sweepExisting)
+        local tick = 0
+        LoopAsync(250, function()
+            tick = tick + 1
+            ExecuteInGameThread(function()
+                if tick % 8 == 1 then pcall(refreshSeed) end
+                if tick % 40 == 2 then pcall(registerHooks) end
+                pcall(processPending)
+            end)
+            return false
         end)
-        return false
     end)
 
     RegisterKeyBind(Key.F8, { ModifierKey.CONTROL }, function()
         ExecuteInGameThread(function()
             if seed then
                 U.log("Seed '%s' active on save slot %d", tostring(seed.seed), (seedSlot or 0) + 1)
+            elseif not U.isReady() then
+                U.log("Still waiting for the game to finish loading")
             else
                 U.log("No seed active (slot %s)", tostring(seedSlot and seedSlot + 1))
             end

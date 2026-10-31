@@ -311,9 +311,7 @@ function S.run()
 
     local function step()
         if state == "wait" then
-            local pc = FindFirstOf("PlayerController")
-            if U.valid(pc) then waitTicks = waitTicks + 1 end
-            if waitTicks >= 12 then state = "discover" end
+            state = "discover"
             return
         end
 
@@ -387,6 +385,13 @@ function S.run()
 
         if state == "finish" then
             stats.elapsed = os.time() - startedAt
+            if stats.locations == 0 then
+                writeStatus({ state = "failed", packages = stats.packages, failed = stats.failed,
+                    message = "No collectibles were found. Send psychorando.log to the developer." })
+                U.log("SCAN FAILED: no collectibles found in %d packages (%d failed to load).", stats.packages, stats.failed)
+                state = "stopped"
+                return
+            end
             U.writeAll(F_DONE, U.json(stats))
             writeStatus({ state = "done", locations = stats.locations, packages = stats.packages,
                 failed = stats.failed, elapsed = stats.elapsed })
@@ -397,6 +402,7 @@ function S.run()
         end
     end
 
+    U.onReady(function()
     LoopAsync(250, function()
         if state == "stopped" then return true end
         if busy then return false end
@@ -407,6 +413,7 @@ function S.run()
             busy = false
         end)
         return false
+    end)
     end)
 end
 

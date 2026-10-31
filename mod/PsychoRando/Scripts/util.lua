@@ -137,6 +137,47 @@ function U.json(v)
     return '"' .. esc(tostring(v)) .. '"'
 end
 
+-- Startup gate. Searching the object list (FindFirstOf/FindAllOf) while the
+-- engine is still initializing crashes UE4SS 3.0.1, so nothing may search
+-- until a PlayerController exists and the game has had time to settle.
+local readyCallbacks, readyFired, pcSeenAt = {}, false, nil
+local startedAt = os.time()
+local SETTLE_SECONDS = 8      -- after the first PlayerController appears
+local FALLBACK_SECONDS = 90   -- in case that signal is never seen
+
+function U.onReady(fn)
+    if readyFired then ExecuteInGameThread(fn) return end
+    readyCallbacks[#readyCallbacks + 1] = fn
+end
+
+function U.isReady() return readyFired end
+
+function U.initReadyGate()
+    NotifyOnNewObject("/Script/Engine.PlayerController", function()
+        if not pcSeenAt then pcSeenAt = os.time() end
+    end)
+    pcall(function()
+        RegisterHook("/Script/Engine.PlayerController:ClientRestart", function()
+            if not pcSeenAt then pcSeenAt = os.time() end
+        end)
+    end)
+    LoopAsync(500, function()
+        local t = os.time()
+        local go = (pcSeenAt and t - pcSeenAt >= SETTLE_SECONDS) or (t - startedAt >= FALLBACK_SECONDS)
+        if not go then return false end
+        readyFired = true
+        U.log("Game is up; starting.")
+        for _, fn in ipairs(readyCallbacks) do
+            ExecuteInGameThread(function()
+                local ok, err = pcall(fn)
+                if not ok then U.log("ready callback error: %s", tostring(err)) end
+            end)
+        end
+        readyCallbacks = {}
+        return true
+    end)
+end
+
 U.CATEGORY_BY_TYPE = {
     [0] = "figment", [1] = "psitanium", [2] = "psimarker", [3] = "keyitem",
     [4] = "vault", [5] = "baggage", [6] = "nugget", [7] = "psicard",

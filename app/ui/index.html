@@ -250,7 +250,7 @@ function renderCats(){
 
 function renderScan(){
   const sc = state.scan, st = sc.status || {};
-  const running = sc.requested && !sc.done;
+  const running = sc.requested && !sc.done && st.state!=='failed';
   $('#scanBox').classList.toggle('hidden', !running && st.state!=='scanning');
   $('#scanCancel').classList.toggle('hidden', !running);
   $('#scanFresh').classList.toggle('hidden', !sc.hasData);
@@ -269,6 +269,8 @@ function renderScan(){
   if(sc.done && sum){
     box.innerHTML = `<div class="note">Scan complete: <b>${sum.total}</b> collectibles across ${Object.keys(sum.byLevel).length} areas.</div>` +
       (sum.warnings||[]).map(w=>`<div class="note warn">${w}. These stay in their original spots.</div>`).join('');
+  } else if(st.state==='failed'){
+    box.innerHTML = `<div class="note warn">The scan ran but found no collectibles. Open the mod folder and send psychorando.log so this can be fixed.</div>`;
   } else if(sc.hasData && !running){
     box.innerHTML = `<div class="note warn">The last scan didn't finish (the game may have closed or crashed). Start it again to resume where it stopped.</div>`;
   } else box.innerHTML = '';
