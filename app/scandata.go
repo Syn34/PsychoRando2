@@ -26,6 +26,7 @@ type ScanLoc struct {
 	Loc    []float64               `json:"loc"`
 	Loot   bool                    `json:"loot"`
 	Cat    string                  `json:"cat"` // set by the scanner for spots without a CoCollectable
+	Vis    json.RawMessage         `json:"vis"` // how the collectible is drawn (meshes, materials, figment art)
 }
 
 // FlexList accepts a JSON array, or {} / null as an empty list (older mod
@@ -70,18 +71,19 @@ type Reward struct {
 }
 
 type Location struct {
-	Key     string    `json:"key"`     // primary key (id:... or pa:...)
-	Aliases []string  `json:"aliases"` // all keys that identify this location at runtime
-	Cat     string    `json:"cat"`
-	Level   string    `json:"level"` // map folder, e.g. FORB
-	Group   string    `json:"group"` // area group used for "within level" mode
-	Pkg     string    `json:"pkg"`
-	Actor   string    `json:"actor"`
-	Class   string    `json:"class"`
-	Orig    Reward    `json:"orig"`
-	Needs   string    `json:"needs,omitempty"` // item path required to collect (bag tag for baggage)
-	ID      string    `json:"id"`
-	Pos     []float64 `json:"pos,omitempty"`
+	Key     string        `json:"key"`     // primary key (id:... or pa:...)
+	Aliases []string      `json:"aliases"` // all keys that identify this location at runtime
+	Cat     string        `json:"cat"`
+	Level   string        `json:"level"` // map folder, e.g. FORB
+	Group   string        `json:"group"` // area group used for "within level" mode
+	Pkg     string        `json:"pkg"`
+	Actor   string        `json:"actor"`
+	Class   string        `json:"class"`
+	Orig    Reward        `json:"orig"`
+	Needs   string        `json:"needs,omitempty"` // item path required to collect (bag tag for baggage)
+	ID      string        `json:"id"`
+	Pos     []float64     `json:"pos,omitempty"`
+	Vis     []interface{} `json:"-"` // drawing recipe captured by the scanner
 }
 
 // UniqueID is the game's collectible ID ("" if the actor had none)
@@ -92,6 +94,7 @@ type GameData struct {
 	Items     map[string]ScanItem // by object path
 	Warnings  []string
 	Source    string
+	FigParams map[string]interface{} // material parameter names for figment art
 }
 
 var catByType = map[int]string{
@@ -291,6 +294,9 @@ var builtinLocations []byte
 //go:embed builtin/scan_items.jsonl
 var builtinItems []byte
 
+//go:embed builtin/figment_params.json
+var builtinFigParams []byte
+
 // BuiltinCount is the number of collectibles shipped inside the app.
 func BuiltinCount() int {
 	gd := LoadBuiltinGameData()
@@ -306,6 +312,7 @@ func LoadBuiltinGameData() *GameData {
 	for _, it := range rawItems {
 		gd.Items[it.Path] = it
 	}
+	_ = json.Unmarshal(builtinFigParams, &gd.FigParams)
 	return buildGameData(gd, locs)
 }
 
@@ -343,6 +350,9 @@ func LoadGameData(dataDir string) (*GameData, error) {
 	}
 	rawItems, _ := readJSONL[ScanItem](filepath.Join(dataDir, "scan_items.jsonl"))
 	gd := &GameData{Items: map[string]ScanItem{}}
+	if b, err := os.ReadFile(filepath.Join(dataDir, "figment_params.json")); err == nil {
+		_ = json.Unmarshal(b, &gd.FigParams)
+	}
 	for _, it := range rawItems {
 		gd.Items[it.Path] = it
 	}
@@ -414,6 +424,9 @@ func buildGameData(gd *GameData, locs []ScanLoc) *GameData {
 			Key: key, Aliases: []string{key}, Cat: cat, Level: level, Group: level,
 			Pkg: l.Pkg, Actor: l.Actor, Class: l.Class,
 			Orig: Reward{Cat: cat, Grants: grants}, Pos: l.Loc,
+		}
+		if len(l.Vis) > 0 && l.Vis[0] == '[' {
+			_ = json.Unmarshal(l.Vis, &loc.Vis)
 		}
 		if l.ID != "None" {
 			loc.ID = l.ID

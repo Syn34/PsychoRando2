@@ -12,6 +12,58 @@ import (
 
 func luaStr(s string) string { return strconv.Quote(s) } // Go quoting is valid Lua for our ASCII paths
 
+// luaValue renders decoded JSON as a Lua literal
+func luaValue(v interface{}) string {
+	switch x := v.(type) {
+	case nil:
+		return "nil"
+	case bool:
+		return strconv.FormatBool(x)
+	case float64:
+		return strconv.FormatFloat(x, 'g', -1, 64)
+	case string:
+		return luaStr(x)
+	case []interface{}:
+		parts := make([]string, len(x))
+		for i, e := range x {
+			parts[i] = luaValue(e)
+		}
+		return "{" + strings.Join(parts, ",") + "}"
+	case map[string]interface{}:
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(x))
+		for _, k := range keys {
+			parts = append(parts, "["+luaStr(k)+"]="+luaValue(x[k]))
+		}
+		return "{" + strings.Join(parts, ",") + "}"
+	}
+	return "nil"
+}
+
+// Spots whose look is just the item lying there; these show the new item's model.
+// Vaults, baggage and supply chests are creatures/containers and keep their look.
+var simpleSpot = map[string]bool{"figment": true, "psicard": true, "psimarker": true, "halfamind": true,
+	"nugget": true, "bagtag": true, "supplykey": true, "scavenger": true}
+
+// visualFor returns the drawing recipe to show at p.Loc, or nil to keep the original look.
+func visualFor(p Placement) (vis []interface{}, scale, zoff float64) {
+	if p.From == p.Loc || !simpleSpot[p.Loc.Cat] || len(p.From.Vis) == 0 {
+		return nil, 0, 0
+	}
+	if p.Loc.Cat == "figment" && p.Reward.Cat == "figment" {
+		return nil, 0, 0 // a figment counts at whatever spot you touch, so its art stays
+	}
+	switch p.From.Cat {
+	case "vault", "baggage", "supplychest":
+		return p.From.Vis, 0.35, 30 // a small walking safe / crying bag marks these rewards
+	}
+	return p.From.Vis, 0, 0
+}
+
 // WriteSeed writes the Lua seed table the mod loads, plus a spoiler log.
 func WriteSeed(modDir string, slot int, gd *GameData, res *SeedResult) (seedPath, spoilerPath string, err error) {
 	dir := filepath.Join(modDir, "seeds")
@@ -83,7 +135,11 @@ func WriteSeed(modDir string, slot int, gd *GameData, res *SeedResult) (seedPath
 			hasActor = true
 		}
 	}
-	fmt.Fprintf(&b, "  },\n  hasActorLocs = %v,\n  locs = L,\n}\n", hasActor)
+	figParams := "nil"
+	if gd.FigParams != nil {
+		figParams = luaValue(map[string]interface{}(gd.FigParams))
+	}
+	fmt.Fprintf(&b, "  },\n  hasActorLocs = %v,\n  figParams = %s,\n  locs = L,\n}\n", hasActor, figParams)
 
 	// locations: one shared table per location, referenced from each alias
 	for i, p := range res.Placements {
@@ -91,7 +147,14 @@ func WriteSeed(modDir string, slot int, gd *GameData, res *SeedResult) (seedPath
 		for _, g := range p.Reward.Grants {
 			fmt.Fprintf(&b, " { %s, %d },", luaStr(g.Path), g.Amount)
 		}
-		b.WriteString(" } }")
+		b.WriteString(" }")
+		if vis, sc, zo := visualFor(p); vis != nil {
+			b.WriteString(", vis = " + luaValue(vis))
+			if sc > 0 {
+				fmt.Fprintf(&b, ", vscale = %g, voff = %g", sc, zo)
+			}
+		}
+		b.WriteString(" }")
 		for _, a := range p.Loc.Aliases {
 			fmt.Fprintf(&b, " L[%s] = e", luaStr(a))
 		}

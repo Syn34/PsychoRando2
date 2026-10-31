@@ -7,6 +7,7 @@
 --   Mods/PsychoRando/data/scan_progress.txt  packages already attempted
 --   Mods/PsychoRando/data/scan_done.txt       written when finished
 local U = require("util")
+local X = require("xform")
 
 local S = {}
 
@@ -159,6 +160,141 @@ local function vecOf(actor)
 end
 
 -- Indexes components of a given class by their owning actor's full name, for one package
+-- ---------------------------------------------------------------------------
+-- Visual recipe: how a collectible is drawn, so the randomizer can show the
+-- right model at the spot an item moves to.
+local function relTransform(comp)
+    local l, r, s = U.get(comp, "RelativeLocation"), U.get(comp, "RelativeRotation"), U.get(comp, "RelativeScale3D")
+    local t = { loc = { 0, 0, 0 }, rot = { 0, 0, 0, 1 }, scale = { 1, 1, 1 } }
+    if l then t.loc = { U.get(l, "X") or 0, U.get(l, "Y") or 0, U.get(l, "Z") or 0 } end
+    if r then t.rot = X.quatFromRotator(U.get(r, "Pitch") or 0, U.get(r, "Yaw") or 0, U.get(r, "Roll") or 0) end
+    if s then t.scale = { U.get(s, "X") or 1, U.get(s, "Y") or 1, U.get(s, "Z") or 1 } end
+    return t
+end
+
+-- transform of a component relative to its actor (root excluded)
+local function toActor(comp, root)
+    local chain = {}
+    local c, guard = comp, 0
+    while U.valid(c) and guard < 16 do
+        if root and U.fullName(c) == U.fullName(root) then break end
+        chain[#chain + 1] = c
+        c = U.get(c, "AttachParent")
+        guard = guard + 1
+    end
+    local t = X.IDENTITY
+    for i = #chain, 1, -1 do t = X.compose(t, relTransform(chain[i])) end
+    return t
+end
+
+local function assetPath(v)
+    if not v or not U.valid(v) then return nil end
+    local p = U.objPath(v)
+    if not p then return nil end
+    if p:find("Transient", 1, true) or p:find("MaterialInstanceDynamic", 1, true) then
+        local parent = U.get(v, "Parent")
+        if parent and U.valid(parent) then return U.objPath(parent) end
+        return nil
+    end
+    return p
+end
+
+local function materialsOf(comp)
+    local mats = U.list()
+    U.eachArray(U.get(comp, "OverrideMaterials"), function(i, m) mats[i] = assetPath(m) or "" end)
+    return mats
+end
+
+local function round3(t)
+    local function r(x) return math.floor(x * 1000 + 0.5) / 1000 end
+    return { loc = { r(t.loc[1]), r(t.loc[2]), r(t.loc[3]) }, rot = { r(t.rot[1]), r(t.rot[2]), r(t.rot[3]), r(t.rot[4]) },
+        scale = { r(t.scale[1]), r(t.scale[2]), r(t.scale[3]) } }
+end
+
+local FIGMENT_PARAMS = nil
+
+local function visualRecipe(actor)
+    local root = U.get(actor, "RootComponent")
+    local comps, seen = {}, {}
+    local function add(c)
+        if not U.valid(c) then return end
+        local f = U.fullName(c)
+        if f and not seen[f] then seen[f] = true; comps[#comps + 1] = c end
+    end
+    U.eachArray(U.get(actor, "BlueprintCreatedComponents"), function(_, c) add(c) end)
+    -- components declared on native classes (e.g. Character mesh) are reachable through properties
+    pcall(function()
+        local cls = actor:GetClass()
+        local guard = 0
+        while U.valid(cls) and guard < 14 do
+            guard = guard + 1
+            cls:ForEachProperty(function(prop)
+                local okT, ptype = pcall(function() return prop:GetClass():GetFName():ToString() end)
+                if okT and ptype == "ObjectProperty" then
+                    local v = U.get(actor, prop:GetFName():ToString())
+                    if v and U.valid(v) then
+                        local okO, o = pcall(function() return v:GetOuter() end)
+                        if okO and U.valid(o) and U.fullName(o) == U.fullName(actor) then add(v) end
+                    end
+                end
+            end)
+            if (U.fullName(cls) or ""):find("/Script/Engine.Actor", 1, true) then break end
+            cls = cls:GetSuperStruct()
+        end
+    end)
+    local vis = U.list()
+    for _, c in ipairs(comps) do
+        local cls = (U.fullName(c) or ""):match("^(%S+)") or ""
+        local visible = U.get(c, "bVisible")
+        local hidden = U.get(c, "bHiddenInGame")
+        if visible ~= false and hidden ~= true then
+            local rec
+            if cls == "CoFigment" then
+                local fv = U.get(c, "m_FigmentVisuals")
+                rec = { kind = "figment", mesh = assetPath(U.get(c, "StaticMesh")), mats = materialsOf(c) }
+                if fv then
+                    rec.fmat = assetPath(U.get(fv, "m_pMaterialInstance"))
+                    rec.ftex = assetPath(U.get(fv, "m_pFigmentTexture"))
+                    rec.fpal = assetPath(U.get(fv, "m_PaletteTexture"))
+                    rec.fcol = U.get(fv, "m_iPaletteColor")
+                    rec.fcustom = U.get(fv, "m_bUseCustomColor")
+                    local cc = U.get(fv, "m_CustomColor")
+                    if cc then rec.fcc = { U.get(cc, "R") or 0, U.get(cc, "G") or 0, U.get(cc, "B") or 0, U.get(cc, "A") or 1 } end
+                end
+                if not FIGMENT_PARAMS then
+                    local pd = U.get(c, "m_FigmentMaterialParams")
+                    if pd and U.valid(pd) then
+                        FIGMENT_PARAMS = {}
+                        for _, k in ipairs({ "FigmentTextureParamName", "PaletteTextureParamName", "PaletteColorParamName",
+                            "CustomColorParamName", "UseCustomColorParamName", "FigmentOpacityParamName" }) do
+                            FIGMENT_PARAMS[k] = U.fname(U.get(pd, k))
+                        end
+                        U.writeAll(DATA .. "figment_params.json", U.json(FIGMENT_PARAMS))
+                    end
+                end
+            elseif cls:find("StaticMeshComponent$") or cls == "StaticMeshComponent" then
+                local m = assetPath(U.get(c, "StaticMesh"))
+                if m then rec = { kind = "static", mesh = m, mats = materialsOf(c) } end
+            elseif cls:find("SkeletalMeshComponent$") or cls == "SkeletalMeshComponent" then
+                local m = assetPath(U.get(c, "SkeletalMesh"))
+                if m then
+                    rec = { kind = "skeletal", mesh = m, mats = materialsOf(c) }
+                    local ac = U.get(c, "AnimClass")
+                    if ac and U.valid(ac) then rec.anim = U.objPath(ac) end
+                end
+            elseif cls:find("ParticleSystemComponent$") then
+                local tpl = assetPath(U.get(c, "Template"))
+                if tpl and U.get(c, "bAutoActivate") ~= false then rec = { kind = "particle", tpl = tpl } end
+            end
+            if rec then
+                rec.xf = round3(toActor(c, root))
+                vis[#vis + 1] = rec
+            end
+        end
+    end
+    return vis
+end
+
 local function componentsByOwner(className, pkg)
     local map = {}
     local all = FindAllOf(className)
@@ -231,6 +367,8 @@ local function scanPackage(pkg, expand)
                 end
                 rec.refs = inventoryRefs(actor)
                 rec.loc = vecOf(actor)
+                local okV, vis = pcall(visualRecipe, actor)
+                if okV then rec.vis = vis else U.log("    visuals failed for %s: %s", rec.actor, tostring(vis)) end
                 for _, g in ipairs(rec.grants or {}) do if g[1] ~= "None" then SeenItems[g[1]] = true end end
                 for _, r in ipairs(rec.refs) do if r[2]:find("/Inventory/") then SeenItems[r[2]] = true end end
                 appendLine(F_LOCS, U.json(rec))
@@ -260,6 +398,8 @@ local function scanPackage(pkg, expand)
         local _, aname = U.splitActorPath(actorFull)
         local rec = { pkg = pkg, actor = aname or "?", class = actorFull:match("^(%S+)") or "?",
             cat = cat, id = "None", grants = grants or U.list(), refs = refs or U.list(), loc = vecOf(actor), noCollectable = true }
+        local okV, vis = pcall(visualRecipe, actor)
+        if okV then rec.vis = vis end
         for _, g in ipairs(rec.grants) do if g[1] ~= "None" then SeenItems[g[1]] = true end end
         for _, r in ipairs(rec.refs) do if r[2]:find("/Inventory/") then SeenItems[r[2]] = true end end
         appendLine(F_LOCS, U.json(rec))

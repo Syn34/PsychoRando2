@@ -11,6 +11,7 @@
 --     changes: when the original category item arrives right after that
 --     location was collected, we take it back and grant the assigned item.
 local U = require("util")
+local Proxy = require("proxy")
 
 local R = {}
 
@@ -90,7 +91,7 @@ end
 
 local function refreshSeed()
     if U.scanning then
-        if seed then U.log("Scanning: randomizer paused") end
+        if seed then U.log("Scanning: randomizer paused") pcall(Proxy.clearAll) end
         seed, seedSlot, seedMTime, pending = nil, nil, nil, {}
         return
     end
@@ -101,6 +102,8 @@ local function refreshSeed()
         seedSlot, seedMTime = slot, stamp
         seed = stamp and loadSeed(slot) or nil
         processed, handled, context, recent, expect = {}, {}, {}, {}, {}
+        pcall(Proxy.clearAll)
+        if seed then Proxy.setFigmentParams(seed.figParams) end
         if not seed then U.log("Save slot %d is not randomized; mod idle.", slot + 1) end
     end
 end
@@ -184,6 +187,7 @@ end
 
 local function rewriteActor(actor, entry, key)
     if not entry or not entry.give or entry.from == key then return end
+    pcall(Proxy.make, actor, entry, key)
     local pk = pickupableOf(actor)
     if not pk then return end
     local full = U.fullName(pk)
@@ -226,6 +230,10 @@ local function tryRewrite(comp)
     processed[full] = true
     if not entry then return end
     if entry.from == key then return end
+    if U.valid(actor) then
+        local ok, err = pcall(Proxy.make, actor, entry, key)
+        if not ok then U.log("proxy error %s: %s", key, tostring(err)) end
+    end
     if entry.give == nil then return end
     local pk = U.valid(actor) and pickupableOf(actor) or nil
     if not pk then return end
@@ -284,6 +292,7 @@ local function onCollected(comp, why)
     if not entry then return end
     if handled[key] then return end
     handled[key] = true
+    U.post(function() Proxy.remove(key) end)
     if entry.from and (entry.from == key or ("id:" .. tostring(entry.from)) == key) then
         return -- this spot rolled its own item: let the game behave normally
     end
@@ -364,6 +373,7 @@ local function onActorCollected(actor, why)
     local entry, key = locationOfActor(actor)
     if not entry or handled[key] or entry.from == key then return end
     handled[key] = true
+    U.post(function() Proxy.remove(key) end)
     if entry.rewritten and entry.rewritten[U.fullName(actor) or ""] then
         for _, g in ipairs(entry.give or {}) do expect[g[1]] = (expect[g[1]] or 0) + g[2] end
         U.log("Received: %s  (%s %s)", giveLabel(entry), why, key)
@@ -436,6 +446,7 @@ function R.start()
             if t % 100 == 3 then pcall(sweepExisting) end
             if t % 100 == 53 then pcall(sweepActorLocations) end
             if t % 5 == 0 then pcall(processPending) end
+            if t % 20 == 7 then pcall(Proxy.cleanup) end
             return false
         end)
     end)
@@ -443,7 +454,7 @@ function R.start()
     RegisterKeyBind(Key.F8, { ModifierKey.CONTROL }, function()
         U.post(function()
             if seed then
-                U.log("Seed '%s' active on save slot %d", tostring(seed.seed), (seedSlot or 0) + 1)
+                U.log("Seed '%s' active on save slot %d (%d item models shown here)", tostring(seed.seed), (seedSlot or 0) + 1, Proxy.count())
             elseif not U.isReady() then
                 U.log("Still waiting for the game to finish loading")
             else
