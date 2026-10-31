@@ -184,6 +184,17 @@ local function mapChanged()
     for _, fn in ipairs(mapChangeFns) do pcall(fn) end
 end
 
+-- The Raz the player is controlling: the one whose tick drives the mod.
+-- (FindFirstOf can return a leftover Raz from the title screen.)
+U.razPath = nil
+function U.raz()
+    if U.razPath then
+        local ok, o = pcall(StaticFindObject, U.razPath)
+        if ok and o and U.valid(o) then return o end
+    end
+    return nil
+end
+
 -- Resolve an object path to a live object, or nil (never holds stale pointers)
 function U.resolve(path)
     if not path then return nil end
@@ -286,6 +297,7 @@ function U.initReadyGate()
             if addr and addr ~= lastRaz then
                 if lastRaz ~= nil then mapChanged() end
                 lastRaz = addr
+                U.razPath = U.objPath(raz)
             end
             drain()
         end) end)

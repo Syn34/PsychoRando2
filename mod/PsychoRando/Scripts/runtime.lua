@@ -37,8 +37,8 @@ local function lib()
 end
 
 local function worldCtx()
-    local raz = FindFirstOf("P2CharacterRaz")
-    if U.valid(raz) then return raz end
+    local raz = U.raz()
+    if raz then return raz end
     local pc = FindFirstOf("PlayerController")
     if U.valid(pc) then return pc end
     return nil

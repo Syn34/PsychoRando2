@@ -103,11 +103,12 @@ local function viaDebugMenu()
 end
 
 local state = "idle"     -- idle -> waiting -> advanced -> done
+local lastWhere = nil
 local razSince, advancedAt = nil, nil
 
 local function razInLobo()
-    local raz = FindFirstOf("P2CharacterRaz")
-    if not U.valid(raz) then return false, nil end
+    local raz = U.raz()
+    if not raz then return false, nil end
     local f = U.fullName(raz) or ""
     return f:find("/Game/Maps/LOBO/", 1, true) ~= nil, raz
 end
@@ -201,8 +202,8 @@ end
 -- Called every game-thread tick by the runtime while a seed is active.
 function S.tick(seed, slot)
     if capture and not capture.done then
-        local okR, raz = pcall(FindFirstOf, "P2CharacterRaz")
-        if okR and U.valid(raz) then pcall(captureTick, raz) end
+        local raz = U.raz()
+        if raz then pcall(captureTick, raz) end
     end
     if not seed or seed.startAt ~= "motherlobe" or state == "done" then return end
     if state == "idle" then
@@ -211,6 +212,11 @@ function S.tick(seed, slot)
     end
     local inLobo, raz = razInLobo()
     if state == "waiting" then
+        local where = raz and (U.fullName(raz) or "?"):match("/Game/Maps/([^/]+)/") or "no Raz yet"
+        if where ~= lastWhere then
+            lastWhere = where
+            U.log("start: waiting for Loboto's Labyrinth (Raz is in: %s)", where)
+        end
         if not inLobo then razSince = nil return end
         razSince = razSince or os.time()
         if os.time() - razSince < 4 then return end -- let the new game settle

@@ -29,8 +29,8 @@ local function asset(path)
 end
 
 local function worldCtx()
-    local raz = FindFirstOf("P2CharacterRaz")
-    if U.valid(raz) then return raz end
+    local raz = U.raz()
+    if raz then return raz end
     return FindFirstOf("PlayerController")
 end
 
