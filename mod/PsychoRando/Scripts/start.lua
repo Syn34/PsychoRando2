@@ -207,7 +207,8 @@ function S.tick(seed, slot)
     end
     if not seed or seed.startAt ~= "motherlobe" or state == "done" then return end
     if state == "idle" then
-        if U.exists(flagPath(slot)) then state = "done" return end
+        local flag = U.readAll(flagPath(slot))
+        if flag and not flag:find("^failed") then state = "done" return end
         state = "waiting"
     end
     local inLobo, raz = razInLobo()
@@ -226,9 +227,9 @@ function S.tick(seed, slot)
             return
         end
         U.log("Start at the Motherlobe: skipping Loboto's Labyrinth")
-        advance(raz)
+        local advanced = advance(raz)
         if not U.exists(TEMPLATE) then capture = { slot = slot } end
-        U.writeAll(flagPath(slot), os.date("%Y-%m-%d %H:%M:%S"))
+        U.writeAll(flagPath(slot), (advanced and "" or "failed ") .. os.date("%Y-%m-%d %H:%M:%S"))
         state, advancedAt = "advanced", os.time()
         return
     end
@@ -236,7 +237,11 @@ function S.tick(seed, slot)
         if os.time() - advancedAt < 6 then return end
         if inLobo then
             U.log("start: still in Loboto's Labyrinth; opening the Motherlobe")
-            openMotherlobe(raz)
+            if openMotherlobe(raz) then
+                U.writeAll(flagPath(slot), os.date("%Y-%m-%d %H:%M:%S"))
+            else
+                U.log("start: could not skip Loboto's Labyrinth this time; will retry next time this slot is loaded")
+            end
         end
         state = "done"
     end
