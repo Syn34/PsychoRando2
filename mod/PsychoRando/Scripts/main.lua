@@ -3,18 +3,27 @@
 package.path = ".\\Mods\\PsychoRando\\Scripts\\?.lua;" .. package.path
 
 local U = require("util")
-local VERSION = "0.1.9"
+local VERSION = "0.2.0"
 U.log("PsychoRando %s loading", VERSION)
 U.writeAll(U.ROOT .. "data/mod_version.txt", VERSION)
 
 U.initReadyGate()
 
 local Scan = require("scan")
+local runtimeStarted = false
+local function startRuntime()
+    U.scanning = false
+    if runtimeStarted then return end
+    runtimeStarted = true
+    require("runtime").start()
+end
+U.afterScan = startRuntime -- the randomizer takes over as soon as a scan finishes
+
 if Scan.requested() then
     U.scanning = true
     Scan.run()
 else
-    require("runtime").start()
+    startRuntime()
     -- A scan can also be requested from the app while the game is already running
     U.onReady(function()
         U.everyTick(function(t)

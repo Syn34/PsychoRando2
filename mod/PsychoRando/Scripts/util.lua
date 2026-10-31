@@ -173,7 +173,12 @@ end
 
 function U.isReady() return readyFired end
 
+local lastDrainClock = 0
 local function drain()
+    -- Several heartbeats may call this; run at most ~20 times a second
+    local c = os.clock()
+    if c - lastDrainClock < 0.045 then return end
+    lastDrainClock = c
     U.gameTicks = U.gameTicks + 1
     lastTick = os.time()
     if not readyFired then
@@ -202,13 +207,16 @@ local function drain()
     end
 end
 
+local lastArmed = nil
 local function arm()
     local pc = FindFirstOf("PlayerController")
     if not U.valid(pc) then return false end
+    local name = U.fullName(pc)
     local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
     local ok, err = pcall(function() ksl:K2_SetTimer(pc, "ForceNetUpdate", TICK_INTERVAL, true, 0.0, 0.0) end)
     if not ok then U.log("could not start game-thread timer: %s", tostring(err)) return false end
-    U.log("Game-thread timer started on %s", U.fullName(pc) or "?")
+    if name ~= lastArmed then U.log("Game-thread timer started on %s", name or "?") end
+    lastArmed = name
     return true
 end
 
@@ -225,6 +233,23 @@ function U.initReadyGate()
             if not pcSeenAt then pcSeenAt = os.time() end
             if readyFired and os.time() - armedAt >= 1 then armedAt = os.time() pcall(arm) end
         end)
+    end)
+    -- Gameplay heartbeat: Raz's Blueprint tick runs every frame on the game
+    -- thread (the timer above does not fire in gameplay maps). The class only
+    -- exists once gameplay has loaded, so keep trying until the hook sticks.
+    local razHooked = false
+    local RAZ_TICK = "/Game/Characters/Raz/RazCharacter.RazCharacter_C:ReceiveTick"
+    LoopAsync(2000, function()
+        if razHooked then return true end
+        if not pcSeenAt then return false end
+        local fn = StaticFindObject(RAZ_TICK)
+        if not U.valid(fn) then return false end
+        local ok = pcall(function() RegisterHook(RAZ_TICK, function() drain() end) end)
+        if ok then
+            razHooked = true
+            U.log("Gameplay heartbeat attached (Raz tick)")
+        end
+        return razHooked
     end)
     -- Arms (and re-arms after map changes destroy the controller) the timer
     LoopAsync(1000, function()

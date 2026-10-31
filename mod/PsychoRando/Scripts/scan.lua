@@ -577,15 +577,18 @@ function S.run()
                     message = "No collectibles were found. Send psychorando.log to the developer." })
                 U.log("SCAN FAILED: no collectibles found in %d packages (%d failed to load).", stats.packages, stats.failed)
                 state = "stopped"
+                os.remove(F_REQUEST)
+                if U.afterScan then U.post(U.afterScan) end
                 return
             end
             U.writeAll(F_DONE, U.json(stats))
             writeStatus({ state = "done", locations = stats.locations, packages = stats.packages,
                 failed = stats.failed, elapsed = stats.elapsed })
             os.remove(F_REQUEST)
-            U.log("SCAN COMPLETE: %d collectibles in %d packages (%d failed). You can close the game now.",
+            U.log("SCAN COMPLETE: %d collectibles in %d packages (%d failed). The randomizer is now active.",
                 stats.locations, stats.packages, stats.failed)
             state = "stopped"
+            if U.afterScan then U.post(U.afterScan) end
         end
     end
 
