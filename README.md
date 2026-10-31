@@ -24,6 +24,7 @@ Figments, PSI Cards, PSI Challenge Markers, Half-a-Minds, Supply Chest Keys, Mem
 
 - **Where items can land:** anywhere in the game, or only within their own level.
 - **Figments:** mixed with everything, or swapped only with other figments.
+- **Start at the Motherlobe:** skips Loboto's Labyrinth (uses the game's own advance-to-quest to QUEST_HUB1_1005_CheckinFrontDesk, falling back to opening the Motherlobe map). Loboto's spots are left out of the shuffle.
 - **Logic:** never places a bag tag behind its own baggage. Uses assumed fill, so tag chains are also prevented.
 - **Seed:** the same seed and options always produce the same layout. A spoiler log is written next to the seed.
 

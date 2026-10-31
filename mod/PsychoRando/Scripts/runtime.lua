@@ -12,6 +12,7 @@
 --     location was collected, we take it back and grant the assigned item.
 local U = require("util")
 local Proxy = require("proxy")
+local Start = require("start")
 
 local R = {}
 
@@ -439,6 +440,7 @@ function R.start()
     U.onMapChange(function()
         pending, processed, context, recent, expect = {}, {}, {}, {}, {}
         Proxy.forget()
+        Start.reset()
     end)
     U.onReady(function()
         pcall(refreshSeed)
@@ -453,6 +455,10 @@ function R.start()
             if t % 100 == 53 then pcall(sweepActorLocations) end
             if t % 5 == 0 then pcall(processPending) end
             if t % 20 == 7 then pcall(Proxy.cleanup) end
+            if t % 10 == 4 and seed then
+                local ok, err = pcall(Start.tick, seed, seedSlot)
+                if not ok then U.log("start error: %s", tostring(err)) end
+            end
             return false
         end)
     end)

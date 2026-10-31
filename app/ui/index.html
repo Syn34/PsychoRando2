@@ -194,6 +194,11 @@ details.adv[open] summary{margin-bottom:8px}
         <label class="check"><input type="checkbox" id="logic"> Never lock a bag tag behind its own baggage</label>
       </fieldset>
       <fieldset>
+        <legend>Start</legend>
+        <label class="check"><input type="checkbox" id="startMotherlobe"> Start at the Motherlobe (skip Loboto's Labyrinth)</label>
+        <p class="hint">After choosing New Game you'll be moved to the Motherlobe a few seconds into Loboto's Labyrinth. Its collectibles are left out of the shuffle, so nothing you need is stranded there.</p>
+      </fieldset>
+      <fieldset>
         <legend>Seed</legend>
         <div class="field"><input type="text" id="seed" placeholder="Leave blank for a random seed"><button class="btn" id="rollSeed">New seed</button></div>
         <p class="hint">The same seed and options always give the same layout, so you can race a friend.</p>
@@ -314,7 +319,7 @@ function readOptions(){
   return { seed: $('#seed').value.trim(), categories: cats,
     scope: document.querySelector('[name=scope]:checked').value,
     figments: document.querySelector('[name=figments]:checked').value,
-    logic: $('#logic').checked };
+    logic: $('#logic').checked, startMotherlobe: $('#startMotherlobe').checked };
 }
 
 async function refresh(full){
@@ -327,6 +332,7 @@ async function refresh(full){
     document.querySelector(`[name=scope][value=${o.scope||'global'}]`).checked = true;
     document.querySelector(`[name=figments][value=${o.figments||'mixed'}]`).checked = true;
     $('#logic').checked = o.logic !== false;
+    $('#startMotherlobe').checked = !!o.startMotherlobe;
   }
   setStatus($('#stGame'), ins.gameFound, ins.gameFound ? 'Game found' : 'Game not found here');
   setStatus($('#stUe'), ins.ue4ssFound, ins.ue4ssFound ? 'UE4SS installed' : 'UE4SS missing');

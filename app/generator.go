@@ -18,6 +18,10 @@ type Options struct {
 	Logic      bool            `json:"logic"`    // keep baggage/tag dependencies solvable
 	Levels     map[string]bool `json:"levels"`   // optional: only these levels (nil = all)
 
+	// StartMotherlobe skips Loboto's Labyrinth: the game begins at the Motherlobe
+	// and Loboto's Labyrinth spots are left out of the shuffle.
+	StartMotherlobe bool `json:"startMotherlobe"`
+
 	// Collected holds unique IDs already collected in the target save. Those
 	// spots (and the items they gave) are left out so nothing can be obtained twice.
 	Collected map[string]bool `json:"-"`
@@ -49,7 +53,7 @@ func Generate(gd *GameData, opt Options) (*SeedResult, error) {
 	rng := rngFor(opt.Seed)
 
 	var locs []*Location
-	skippedCollected := 0
+	skippedCollected, skippedIntro := 0, 0
 	for _, l := range gd.Locations {
 		if !opt.Categories[l.Cat] {
 			continue
@@ -59,6 +63,10 @@ func Generate(gd *GameData, opt Options) (*SeedResult, error) {
 		}
 		if len(l.Orig.Grants) == 0 && l.Cat != "figment" {
 			continue // unknown original reward: leave this location vanilla
+		}
+		if opt.StartMotherlobe && l.Level == "LOBO" {
+			skippedIntro++
+			continue // skipped area: nothing may be placed (or found) there
 		}
 		if strings.HasPrefix(l.Key, "id:") && opt.Collected[strings.TrimPrefix(l.Key, "id:")] {
 			skippedCollected++
@@ -108,6 +116,7 @@ func Generate(gd *GameData, opt Options) (*SeedResult, error) {
 	}
 	res.Stats["locations"] = len(res.Placements)
 	res.Stats["alreadyCollected"] = skippedCollected
+	res.Stats["skippedIntro"] = skippedIntro
 	return res, nil
 }
 
