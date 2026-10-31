@@ -186,6 +186,10 @@ func (a *App) routes() http.Handler {
 			writeErr(w, err)
 			return
 		}
+		// progress files from mod versions before 0.1.9 have no "ok" lines and can't be resumed
+		if b, err := os.ReadFile(filepath.Join(p.DataDir(), "scan_progress.txt")); err == nil && !strings.Contains(string(b), "\nok ") && !strings.HasPrefix(string(b), "ok ") {
+			req.Fresh = true
+		}
 		if req.Fresh {
 			for _, f := range []string{"scan_locations.jsonl", "scan_items.jsonl", "scan_progress.txt", "scan_done.txt", "scan_status.json", "scan_worlds.txt"} {
 				_ = os.Remove(filepath.Join(p.DataDir(), f))

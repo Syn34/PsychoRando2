@@ -222,26 +222,16 @@ local function visualRecipe(actor)
         if f and not seen[f] then seen[f] = true; comps[#comps + 1] = c end
     end
     U.eachArray(U.get(actor, "BlueprintCreatedComponents"), function(_, c) add(c) end)
-    -- components declared on native classes (e.g. Character mesh) are reachable through properties
-    pcall(function()
-        local cls = actor:GetClass()
-        local guard = 0
-        while U.valid(cls) and guard < 14 do
-            guard = guard + 1
-            cls:ForEachProperty(function(prop)
-                local okT, ptype = pcall(function() return prop:GetClass():GetFName():ToString() end)
-                if okT and ptype == "ObjectProperty" then
-                    local v = U.get(actor, prop:GetFName():ToString())
-                    if v and U.valid(v) then
-                        local okO, o = pcall(function() return v:GetOuter() end)
-                        if okO and U.valid(o) and U.fullName(o) == U.fullName(actor) then add(v) end
-                    end
-                end
-            end)
-            if (U.fullName(cls) or ""):find("/Script/Engine.Actor", 1, true) then break end
-            cls = cls:GetSuperStruct()
+    -- a few well-known component properties (e.g. a Character's "Mesh"); never walk
+    -- every property: values on not-yet-started actors can be garbage
+    for _, name in ipairs({ "Mesh", "CoFigment", "StaticMesh", "SkeletalMesh", "StaticMeshComponent",
+        "SkeletalMeshComponent", "Visual", "Model" }) do
+        local v = U.get(actor, name)
+        if v and type(v) == "userdata" and U.valid(v) then
+            local okO, o = pcall(function() return v:GetOuter() end)
+            if okO and U.valid(o) and U.fullName(o) == U.fullName(actor) then add(v) end
         end
-    end)
+    end
     local vis = U.list()
     for _, c in ipairs(comps) do
         local cls = (U.fullName(c) or ""):match("^(%S+)") or ""
@@ -329,7 +319,7 @@ local function expandStreaming(world, expand)
     return n
 end
 
-local function scanPackage(pkg, expand)
+local function scanPackage(pkg, expand, safe)
     local leaf = pkg:match("([^/]+)$")
     local world = loadObject(pkg .. "." .. leaf)
     if not world then
@@ -367,8 +357,10 @@ local function scanPackage(pkg, expand)
                 end
                 rec.refs = inventoryRefs(actor)
                 rec.loc = vecOf(actor)
-                local okV, vis = pcall(visualRecipe, actor)
-                if okV then rec.vis = vis else U.log("    visuals failed for %s: %s", rec.actor, tostring(vis)) end
+                if not safe then
+                    local okV, vis = pcall(visualRecipe, actor)
+                    if okV then rec.vis = vis else U.log("    visuals failed for %s: %s", rec.actor, tostring(vis)) end
+                end
                 for _, g in ipairs(rec.grants or {}) do if g[1] ~= "None" then SeenItems[g[1]] = true end end
                 for _, r in ipairs(rec.refs) do if r[2]:find("/Inventory/") then SeenItems[r[2]] = true end end
                 appendLine(F_LOCS, U.json(rec))
@@ -376,7 +368,8 @@ local function scanPackage(pkg, expand)
             end
         end
     end
-    -- Pickups and interactables WITHOUT a CoCollectable component (scavenger hunt
+    if safe then return count, nil end
+    -- Pickups WITHOUT a CoCollectable component (scavenger hunt
     -- items, some keys) are recorded too, keyed by package|actor.
     local withColl = {}
     for _, c in ipairs(collectables) do
@@ -412,17 +405,6 @@ local function scanPackage(pkg, expand)
                 done[owner] = true
                 local okA, actor = pcall(function() return pk:GetOuter() end)
                 if okA and U.valid(actor) then extra(owner, actor, grantedItems(pk), inventoryRefs(actor)) end
-            end
-        end
-    end
-    local interact = componentsByOwner("COMP_Interactible_C", pkg)
-    for owner, ic in pairs(interact) do
-        if not withColl[owner] and not done[owner] then
-            local cls = owner:match("^(%S+)") or ""
-            if cls:upper():find("SCAV") or cls:find("PKUP_") or cls:upper():find("KEY") or cls:upper():find("CRITICAL") then
-                done[owner] = true
-                local okA, actor = pcall(function() return ic:GetOuter() end)
-                if okA and U.valid(actor) then extra(owner, actor, nil, inventoryRefs(actor)) end
             end
         end
     end
@@ -470,16 +452,26 @@ local function catalogueAll()
     return n
 end
 
+-- Progress lines: "try <pkg>" before loading, "ok <pkg>" after. A package with
+-- one unmatched "try" crashed the game: retry it once in safe mode
+-- (collectibles only). Two unmatched tries: skip it.
 local function readProgress()
-    local done = {}
+    local tries, oks = {}, {}
     local s = U.readAll(F_PROGRESS)
     if s then
         for line in s:gmatch("[^\r\n]+") do
-            local pkg = line:match("^%S+%s+(.+)$") or line
-            done[pkg] = true
+            local kind, pkg = line:match("^(%S+)%s+(.+)$")
+            if kind == "ok" then oks[pkg] = true
+            elseif kind == "try" or kind == "safe" then tries[pkg] = (tries[pkg] or 0) + 1 end
         end
     end
-    return done
+    local done, retry = {}, {}
+    for pkg, n in pairs(tries) do
+        if oks[pkg] then done[pkg] = true
+        elseif n >= 2 then done[pkg] = true; U.log("Skipping %s (crashed twice)", pkg)
+        else retry[pkg] = true end
+    end
+    return done, retry
 end
 
 function S.requested()
@@ -494,7 +486,7 @@ function S.run()
     local state = "wait"
     local waitTicks = 0
     local queue, qi = {}, 1
-    local allPkgs, doneSet = {}, {}
+    local allPkgs, doneSet, retrySet = {}, {}, {}
     local itemSeen = {}
     local stats = { packages = 0, locations = 0, failed = 0 }
     local busy = false
@@ -517,8 +509,9 @@ function S.run()
                 if line:find("^/Game/Maps/") then add(line) end
             end
             for _, p in ipairs(FALLBACK_PERSISTENT) do add("/Game/Maps/" .. p) end
+            doneSet, retrySet = readProgress()
+            for p in pairs(retrySet) do add(p) end -- sublevels that crashed last time
             table.sort(allPkgs)
-            doneSet = readProgress()
             for _, p in ipairs(allPkgs) do
                 if shouldScan(p, fullScan) and not doneSet[p] then queue[#queue + 1] = p end
             end
@@ -536,10 +529,11 @@ function S.run()
             local pkg = queue[qi]
             qi = qi + 1
             -- Mark as attempted BEFORE loading so a crash on this package skips it next time
-            appendLine(F_PROGRESS, "try " .. pkg)
+            local safe = retrySet[pkg] == true
+            appendLine(F_PROGRESS, (safe and "safe " or "try ") .. pkg)
             writeStatus({ state = "scanning", index = qi - 1, total = #queue, current = pkg,
                 locations = stats.locations, elapsed = os.time() - startedAt })
-            U.log("  -> %s", pkg)
+            U.log("  -> %s%s", pkg, safe and "  (retry in safe mode)" or "")
             local ok, n, err = pcall(scanPackage, pkg, function(sub)
                 sub = sub:gsub("%.[%w_]+$", "")
                 for _, p in ipairs(allPkgs) do if p == sub then return end end
@@ -548,7 +542,8 @@ function S.run()
                     queue[#queue + 1] = sub
                     stats.total = #queue
                 end
-            end)
+            end, safe)
+            appendLine(F_PROGRESS, "ok " .. pkg) -- reached here, so the game didn't crash on it
             if not ok then
                 U.log("  ERROR scanning %s: %s", pkg, tostring(n))
                 stats.failed = stats.failed + 1
@@ -577,7 +572,7 @@ function S.run()
 
         if state == "finish" then
             stats.elapsed = os.time() - startedAt
-            if stats.locations == 0 then
+            if stats.locations == 0 and #(U.readAll(F_LOCS) or "") < 10 then
                 writeStatus({ state = "failed", packages = stats.packages, failed = stats.failed,
                     message = "No collectibles were found. Send psychorando.log to the developer." })
                 U.log("SCAN FAILED: no collectibles found in %d packages (%d failed to load).", stats.packages, stats.failed)
