@@ -1,0 +1,24 @@
+{"path": "/Game/Gameplay/Inventory/Upgrades/Minds/INV_Mind_HP.INV_Mind_HP", "class": "InventoryItem", "name": "Half-a-Mind", "max": 1}
+{"path": "/Game/Gameplay/Inventory/Experience/INV_PsiChallengeCard.INV_PsiChallengeCard", "class": "InventoryItem", "name": "PSI Challenge Card", "max": 1}
+{"path": "/Game/Gameplay/Inventory/INV_PSIMarker.INV_PSIMarker", "class": "InventoryItem", "name": "PSI Challenge Marker", "max": 1}
+{"path": "/Game/Gameplay/Inventory/INV_NuggetOfWisdom.INV_NuggetOfWisdom", "class": "InventoryItem", "name": "Nugget of Wisdom", "max": 1}
+{"path": "/Game/Gameplay/Inventory/SupplyChest/INV_SupplyChestKey_Base.INV_SupplyChestKey_Base", "class": "InventoryItem", "name": "Supply Chest Key", "max": 1}
+{"path": "/Game/Gameplay/Inventory/EmotionalBaggage/FORD/INV_BagTag_Suitcase_FORD.INV_BagTag_Suitcase_FORD", "class": "InventoryItem", "name": "Suitcase Tag (FORD)", "max": 1}
+{"path": "/Game/Gameplay/Inventory/EmotionalBaggage/FORD/INV_SortedBag_Suitcase_FORD.INV_SortedBag_Suitcase_FORD", "class": "InventoryItem", "name": "Sorted Suitcase (FORD)", "max": 1}
+{"path": "/Game/Gameplay/Inventory/EmotionalBaggage/FORD/INV_BagTag_Duffle_FORD.INV_BagTag_Duffle_FORD", "class": "InventoryItem", "name": "Duffle Tag (FORD)", "max": 1}
+{"path": "/Game/Gameplay/Inventory/EmotionalBaggage/FORD/INV_SortedBag_Duffle_FORD.INV_SortedBag_Duffle_FORD", "class": "InventoryItem", "name": "Sorted Duffle (FORD)", "max": 1}
+{"path": "/Game/Gameplay/Inventory/Vault/INV_VAULT_FORB_1.INV_VAULT_FORB_1", "class": "InventoryItem", "name": "Vault FORB 1", "max": 1}
+{"path": "/Game/Gameplay/Inventory/Vault/INV_VAULT_FORB_2.INV_VAULT_FORB_2", "class": "InventoryItem", "name": "Vault FORB 2", "max": 1}
+{"path": "/Game/Gameplay/Inventory/EmotionalBaggage/CASS/INV_BagTag_Suitcase_CASS.INV_BagTag_Suitcase_CASS", "class": "InventoryItem", "name": "Suitcase Tag (CASS)", "max": 1}
+{"path": "/Game/Gameplay/Inventory/EmotionalBaggage/CASS/INV_SortedBag_Suitcase_CASS.INV_SortedBag_Suitcase_CASS", "class": "InventoryItem", "name": "Sorted Suitcase (CASS)", "max": 1}
+{"path": "/Game/Gameplay/Inventory/EmotionalBaggage/CASS/INV_BagTag_Duffle_CASS.INV_BagTag_Duffle_CASS", "class": "InventoryItem", "name": "Duffle Tag (CASS)", "max": 1}
+{"path": "/Game/Gameplay/Inventory/EmotionalBaggage/CASS/INV_SortedBag_Duffle_CASS.INV_SortedBag_Duffle_CASS", "class": "InventoryItem", "name": "Sorted Duffle (CASS)", "max": 1}
+{"path": "/Game/Gameplay/Inventory/Vault/INV_VAULT_CASS_1.INV_VAULT_CASS_1", "class": "InventoryItem", "name": "Vault CASS 1", "max": 1}
+{"path": "/Game/Gameplay/Inventory/Vault/INV_VAULT_CASS_2.INV_VAULT_CASS_2", "class": "InventoryItem", "name": "Vault CASS 2", "max": 1}
+{"path": "/Game/Gameplay/Inventory/EmotionalBaggage/BOBZ/INV_BagTag_Suitcase_BOBZ.INV_BagTag_Suitcase_BOBZ", "class": "InventoryItem", "name": "Suitcase Tag (BOBZ)", "max": 1}
+{"path": "/Game/Gameplay/Inventory/EmotionalBaggage/BOBZ/INV_SortedBag_Suitcase_BOBZ.INV_SortedBag_Suitcase_BOBZ", "class": "InventoryItem", "name": "Sorted Suitcase (BOBZ)", "max": 1}
+{"path": "/Game/Gameplay/Inventory/EmotionalBaggage/BOBZ/INV_BagTag_Duffle_BOBZ.INV_BagTag_Duffle_BOBZ", "class": "InventoryItem", "name": "Duffle Tag (BOBZ)", "max": 1}
+{"path": "/Game/Gameplay/Inventory/EmotionalBaggage/BOBZ/INV_SortedBag_Duffle_BOBZ.INV_SortedBag_Duffle_BOBZ", "class": "InventoryItem", "name": "Sorted Duffle (BOBZ)", "max": 1}
+{"path": "/Game/Gameplay/Inventory/Vault/INV_VAULT_BOBZ_1.INV_VAULT_BOBZ_1", "class": "InventoryItem", "name": "Vault BOBZ 1", "max": 1}
+{"path": "/Game/Gameplay/Inventory/Vault/INV_VAULT_BOBZ_2.INV_VAULT_BOBZ_2", "class": "InventoryItem", "name": "Vault BOBZ 2", "max": 1}
+{"path": "/Game/Gameplay/Inventory/ScavengerHunt/SCAVHUNTITEM_CanOfCorn.SCAVHUNTITEM_CanOfCorn", "class": "InventoryItem", "name": "Can of Corn", "max": 1}
