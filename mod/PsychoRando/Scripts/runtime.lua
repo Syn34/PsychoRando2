@@ -89,6 +89,11 @@ local function loadSeed(slot)
 end
 
 local function refreshSeed()
+    if U.scanning then
+        if seed then U.log("Scanning: randomizer paused") end
+        seed, seedSlot, seedMTime, pending = nil, nil, nil, {}
+        return
+    end
     local slot = currentSlot()
     if slot == nil then return end
     local stamp = fileStamp(seedPath(slot))
@@ -358,7 +363,7 @@ function R.start()
     U.log("Runtime started; waiting for the game to finish loading")
     -- Safe before the gate: these only register callbacks, they don't search objects
     NotifyOnNewObject("/Script/Psychonauts2.CoCollectable", function(comp)
-        if seed then pending[#pending + 1] = { comp = comp, t = now() } end
+        if seed and not U.scanning then pending[#pending + 1] = { comp = comp, t = now() } end
     end)
     RegisterHook("/Script/Engine.PlayerController:ClientRestart", function()
         if not U.isReady() then return end
