@@ -7,8 +7,7 @@ local U = require("util")
 local X = require("xform")
 
 local P = {}
-local proxies = {}   -- location key -> { src = actor, actors = {}, comps = {} }
-local assetCache = {}
+local proxies = {}   -- location key -> { src = path, actors = {paths}, comps = {paths} }
 local figParams = nil
 local warned = {}
 
@@ -20,14 +19,11 @@ end
 
 local function asset(path)
     if not path or path == "" then return nil end
-    local c = assetCache[path]
-    if c and U.valid(c) then return c end
-    local o = StaticFindObject(path)
-    if not U.valid(o) then
-        local ok, r = pcall(function() return LoadAsset(path) end)
-        o = (ok and U.valid(r)) and r or StaticFindObject(path)
-    end
-    if U.valid(o) then assetCache[path] = o return o end
+    local o = U.resolve(path)
+    if o then return o end
+    pcall(function() LoadAsset(path) end)
+    o = U.resolve(path)
+    if o then return o end
     if not warned[path] then warned[path] = true U.log("proxy: could not load %s", path) end
     return nil
 end
@@ -58,16 +54,43 @@ local function actorTransform(actor)
     }
 end
 
+local function errText(e)
+    if type(e) == "string" then return e end
+    return type(e) .. ":" .. tostring(e)
+end
+
+local function step(what, fn)
+    local ok, r = pcall(fn)
+    if not ok then error(what .. " failed: " .. errText(r), 0) end
+    return r
+end
+
+local spawnMode = nil -- remembers which spawn method works
 local function spawn(className, t)
-    local gs = lib("/Script/Engine.Default__GameplayStatics")
     local cls = lib(className)
     local ctx = worldCtx()
-    if not (gs and cls and U.valid(ctx)) then return nil end
-    local tr = ftransform(t)
-    local a = gs:BeginDeferredActorSpawnFromClass(ctx, cls, tr, 1, nil) -- 1 = always spawn
-    if not U.valid(a) then return nil end
-    gs:FinishSpawningActor(a, tr)
+    if not (cls and U.valid(ctx)) then error("no class or world context for " .. className, 0) end
+    local rot = X.quatToRotator(t.rot)
+    local a
+    if spawnMode ~= "deferred" then
+        local ok, r = pcall(function()
+            local world = ctx:GetWorld()
+            return world:SpawnActor(cls, { X = t.loc[1], Y = t.loc[2], Z = t.loc[3] },
+                { Pitch = rot[1], Yaw = rot[2], Roll = rot[3] })
+        end)
+        if ok and U.valid(r) then a = r; spawnMode = "world"
+        elseif spawnMode == nil then U.log("proxy: World:SpawnActor unavailable (%s); trying deferred spawn", errText(r)) end
+    end
+    if not a then
+        local gs = lib("/Script/Engine.Default__GameplayStatics")
+        local tr = ftransform(t)
+        a = step("BeginDeferredActorSpawnFromClass", function() return gs:BeginDeferredActorSpawnFromClass(ctx, cls, tr, 1, ctx) end)
+        if not U.valid(a) then error("deferred spawn returned nothing", 0) end
+        step("FinishSpawningActor", function() gs:FinishSpawningActor(a, tr) end)
+        spawnMode = "deferred"
+    end
     pcall(function() a:SetActorEnableCollision(false) end)
+    pcall(function() a:SetActorScale3D({ X = t.scale[1], Y = t.scale[2], Z = t.scale[3] }) end)
     return a
 end
 
@@ -105,11 +128,11 @@ local function build(rec, t, p)
         if not mesh then return end
         local a = spawn("/Script/Engine.StaticMeshActor", t)
         if not a then return end
-        p.actors[#p.actors + 1] = a
+        p.actors[#p.actors + 1] = U.objPath(a)
         pcall(function() a:SetMobility(2) end) -- movable, so the mesh can be changed
         local smc = U.get(a, "StaticMeshComponent")
-        if not U.valid(smc) then return end
-        smc:SetStaticMesh(mesh)
+        if not U.valid(smc) then error("StaticMeshActor has no component", 0) end
+        step("SetStaticMesh", function() smc:SetStaticMesh(mesh) end)
         if rec.kind == "figment" then
             local mid = figmentMaterial(rec)
             if mid then smc:SetMaterial(0, mid) else setMaterials(smc, rec.mats) end
@@ -121,10 +144,10 @@ local function build(rec, t, p)
         if not mesh then return end
         local a = spawn("/Script/Engine.SkeletalMeshActor", t)
         if not a then return end
-        p.actors[#p.actors + 1] = a
+        p.actors[#p.actors + 1] = U.objPath(a)
         local skc = U.get(a, "SkeletalMeshComponent")
-        if not U.valid(skc) then return end
-        skc:SetSkeletalMesh(mesh, true)
+        if not U.valid(skc) then error("SkeletalMeshActor has no component", 0) end
+        step("SetSkeletalMesh", function() skc:SetSkeletalMesh(mesh, true) end)
         setMaterials(skc, rec.mats)
         if rec.anim then
             local ac = asset(rec.anim)
@@ -139,10 +162,11 @@ local function build(rec, t, p)
                 { X = t.loc[1], Y = t.loc[2], Z = t.loc[3] }, { Pitch = 0, Yaw = 0, Roll = 0 },
                 { X = t.scale[1], Y = t.scale[2], Z = t.scale[3] }, false, 0, true)
         end)
-        if ok and U.valid(comp) then p.comps[#p.comps + 1] = comp end
+        if ok and U.valid(comp) then p.comps[#p.comps + 1] = U.objPath(comp) end
     end
 end
 
+local buildErrors = 0
 function P.setFigmentParams(fp) figParams = fp end
 
 -- Creates the proxy for a location if the seed gives it one.
@@ -155,11 +179,14 @@ function P.make(actor, entry, key)
         base.scale = { base.scale[1] * entry.vscale, base.scale[2] * entry.vscale, base.scale[3] * entry.vscale }
     end
     if entry.voff then base.loc[3] = base.loc[3] + entry.voff end
-    local p = { src = actor, actors = {}, comps = {} }
+    local p = { src = U.objPath(actor), actors = {}, comps = {} }
     proxies[key] = p
     for _, rec in ipairs(entry.vis) do
         local ok, err = pcall(build, rec, X.compose(base, rec.xf or X.IDENTITY), p)
-        if not ok then U.log("proxy build error at %s: %s", key, tostring(err)) end
+        if not ok then
+            buildErrors = buildErrors + 1
+            if buildErrors <= 5 then U.log("proxy build error at %s (%s): %s", key, tostring(rec.kind), errText(err)) end
+        end
     end
     if #p.actors > 0 or #p.comps > 0 then
         pcall(function() actor:SetActorHiddenInGame(true) end)
@@ -172,24 +199,29 @@ function P.remove(key)
     local p = proxies[key]
     if not p then return end
     proxies[key] = nil
-    for _, a in ipairs(p.actors) do
-        if U.valid(a) then pcall(function() a:K2_DestroyActor() end) end
+    for _, path in ipairs(p.actors) do
+        local a = U.resolve(path)
+        if a then pcall(function() a:K2_DestroyActor() end) end
     end
-    for _, c in ipairs(p.comps) do
-        if U.valid(c) then pcall(function() c:K2_DestroyComponent(c) end) end
+    for _, path in ipairs(p.comps) do
+        local c = U.resolve(path)
+        if c then pcall(function() c:K2_DestroyComponent(c) end) end
     end
 end
 
 -- Removes proxies whose original actor is gone (collected and destroyed, or level unloaded)
 function P.cleanup()
     for key, p in pairs(proxies) do
-        if not U.valid(p.src) then P.remove(key) end
+        if not U.resolve(p.src) then P.remove(key) end
     end
 end
 
 function P.clearAll()
     for key in pairs(proxies) do P.remove(key) end
 end
+
+-- Map changed: the world (and our spawned actors) is gone; just forget them
+function P.forget() proxies = {} end
 
 function P.count()
     local n = 0

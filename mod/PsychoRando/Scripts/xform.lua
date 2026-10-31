@@ -41,6 +41,26 @@ function X.compose(parent, child)
     }
 end
 
+-- quaternion -> {pitch, yaw, roll} in degrees (Unreal's FQuat::Rotator)
+function X.quatToRotator(q)
+    local x, y, z, w = q[1], q[2], q[3], q[4]
+    local singTest = z * x - w * y
+    local yawY = 2 * (w * z + x * y)
+    local yawX = 1 - 2 * (y * y + z * z)
+    local r2d = 180 / math.pi
+    local yaw = math.atan(yawY, yawX) * r2d
+    local pitch, roll
+    if singTest < -0.4999995 then
+        pitch = -90; roll = -yaw - 2 * math.atan(x, w) * r2d
+    elseif singTest > 0.4999995 then
+        pitch = 90; roll = yaw - 2 * math.atan(x, w) * r2d
+    else
+        pitch = math.asin(2 * singTest) * r2d
+        roll = math.atan(-2 * (w * x + y * z), 1 - 2 * (x * x + y * y)) * r2d
+    end
+    return { pitch, yaw, roll }
+end
+
 X.IDENTITY = { loc = { 0, 0, 0 }, rot = { 0, 0, 0, 1 }, scale = { 1, 1, 1 } }
 
 return X

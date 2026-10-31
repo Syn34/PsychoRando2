@@ -159,6 +159,24 @@ local FALLBACK_SECONDS = 90
 local TICK_INTERVAL = 0.05
 
 U.gameTicks = 0
+U.mapEpoch = 0
+local mapChangeFns = {}
+-- fn() is called (on the game thread, before any other work) whenever the
+-- player controller changes: title screen, loading screen, new map. Handlers
+-- must only drop references, never call into game objects.
+function U.onMapChange(fn) mapChangeFns[#mapChangeFns + 1] = fn end
+local function mapChanged()
+    U.mapEpoch = U.mapEpoch + 1
+    for _, fn in ipairs(mapChangeFns) do pcall(fn) end
+end
+
+-- Resolve an object path to a live object, or nil (never holds stale pointers)
+function U.resolve(path)
+    if not path then return nil end
+    local ok, o = pcall(StaticFindObject, path)
+    if ok and U.valid(o) then return o end
+    return nil
+end
 
 -- Run fn on the game thread at the next tick
 function U.post(fn) postQueue[#postQueue + 1] = fn end
@@ -215,7 +233,10 @@ local function arm()
     local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
     local ok, err = pcall(function() ksl:K2_SetTimer(pc, "ForceNetUpdate", TICK_INTERVAL, true, 0.0, 0.0) end)
     if not ok then U.log("could not start game-thread timer: %s", tostring(err)) return false end
-    if name ~= lastArmed then U.log("Game-thread timer started on %s", name or "?") end
+    if name ~= lastArmed then
+        U.log("Game-thread timer started on %s", name or "?")
+        if lastArmed ~= nil then mapChanged() end
+    end
     lastArmed = name
     return true
 end
@@ -244,7 +265,16 @@ function U.initReadyGate()
         if not pcSeenAt then return false end
         local fn = StaticFindObject(RAZ_TICK)
         if not U.valid(fn) then return false end
-        local ok = pcall(function() RegisterHook(RAZ_TICK, function() drain() end) end)
+        local lastRaz = nil
+        local ok = pcall(function() RegisterHook(RAZ_TICK, function(self)
+            local okR, raz = pcall(function() return self:get() end)
+            local addr = okR and raz and U.fullName(raz) or nil
+            if addr and addr ~= lastRaz then
+                if lastRaz ~= nil then mapChanged() end
+                lastRaz = addr
+            end
+            drain()
+        end) end)
         if ok then
             razHooked = true
             U.log("Gameplay heartbeat attached (Raz tick)")

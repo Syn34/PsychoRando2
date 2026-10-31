@@ -25,7 +25,6 @@ local context = {}        -- category -> { key=, give=, t=, granted= }
 local recent = {}         -- category -> { item=, delta=, t= }
 local expect = {}         -- item path -> outstanding amount we granted ourselves
 local hooks = {}          -- registered hook paths
-local itemCache = {}
 
 local LONG_CONTEXT = { vault = 180, baggage = 180 }
 local SHORT_CONTEXT = 4
@@ -45,14 +44,11 @@ local function worldCtx()
 end
 
 local function loadItem(path)
-    local c = itemCache[path]
-    if c and U.valid(c) then return c end
-    local obj = StaticFindObject(path)
-    if not U.valid(obj) then
-        local ok, res = pcall(function() return LoadAsset(path) end)
-        if ok and U.valid(res) then obj = res else obj = StaticFindObject(path) end
-    end
-    if U.valid(obj) then itemCache[path] = obj return obj end
+    local obj = U.resolve(path)
+    if obj then return obj end
+    pcall(function() LoadAsset(path) end)
+    obj = U.resolve(path)
+    if obj then return obj end
     U.log("WARNING: could not load item %s", tostring(path))
     return nil
 end
@@ -164,8 +160,9 @@ local function grant(entry, why)
     return true
 end
 
-local function revert(itemObj, path, delta)
+local function revert(path, delta)
     local ctx = worldCtx()
+    local itemObj = loadItem(path)
     if not ctx or not itemObj then return end
     local ok, err = pcall(function() lib():RemoveFromRazInventory(ctx, itemObj, delta) end)
     if ok then U.log("  (took back original %s x%d)", path, delta)
@@ -268,7 +265,8 @@ local function processPending()
     local keep = {}
     for _, p in ipairs(pending) do
         if t - p.t >= 0.6 then
-            if U.valid(p.comp) then pcall(tryRewrite, p.comp) end
+            local comp = U.resolve(p.path)
+            if comp then pcall(tryRewrite, comp) end
         else
             keep[#keep + 1] = p
         end
@@ -308,7 +306,7 @@ local function onCollected(comp, why)
     local r = recent[cat]
     if r and now() - r.t < 1.5 then
         recent[cat] = nil
-        deferred(function() revert(r.obj, r.item, r.delta) end)
+        deferred(function() revert(r.item, r.delta) end)
     else
         context[cat] = { key = key, t = now() }
     end
@@ -346,9 +344,9 @@ local function onInventoryChanged(itemObj, oldAmt, newAmt, fromLoad)
     local limit = LONG_CONTEXT[cat] or SHORT_CONTEXT
     if ctx and now() - ctx.t <= limit then
         context[cat] = nil
-        deferred(function() revert(itemObj, path, delta) end)
+        deferred(function() revert(path, delta) end)
     else
-        recent[cat] = { item = path, obj = itemObj, delta = delta, t = now() }
+        recent[cat] = { item = path, delta = delta, t = now() }
     end
 end
 
@@ -382,7 +380,7 @@ local function onActorCollected(actor, why)
     local r = recent[entry.c]
     if r and now() - r.t < 1.5 then
         recent[entry.c] = nil
-        deferred(function() revert(r.obj, r.item, r.delta) end)
+        deferred(function() revert(r.item, r.delta) end)
     else
         context[entry.c] = { key = key, t = now() }
     end
@@ -432,7 +430,15 @@ function R.start()
     U.log("Runtime started; waiting for the game to finish loading")
     -- Safe before the gate: these only register callbacks, they don't search objects
     NotifyOnNewObject("/Script/Psychonauts2.CoCollectable", function(comp)
-        if seed and not U.scanning then pending[#pending + 1] = { comp = comp, t = now() } end
+        if seed and not U.scanning then
+            local path = U.objPath(comp)
+            if path then pending[#pending + 1] = { path = path, t = now() } end
+        end
+    end)
+    -- Leaving a map destroys everything: forget all references before doing any work
+    U.onMapChange(function()
+        pending, processed, context, recent, expect = {}, {}, {}, {}, {}
+        Proxy.forget()
     end)
     U.onReady(function()
         pcall(refreshSeed)
