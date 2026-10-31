@@ -249,7 +249,7 @@ function renderSlots(){
       <div class="meta">${s.unplayed ? 'Starting save ready, not played yet' : s.exists ? 'Last saved ' + fmtDate(s.modified) : 'No save files'}</div>
       ${s.exists && s.resumes ? `<div class="areas">Continues in: ${s.resumes}</div>` : ''}
       ${s.exists && !s.unplayed ? `<div class="areas">Visited: ${areas || 'unknown'}</div>` : ''}
-      ${s.randomized ? `<span class="tag rando">Randomized · ${s.seed}${s.exists ? '' : ' · no save yet'}</span>` : (s.exists ? '<span class="tag locked">Regular save, can\'t be randomized</span>' : '<span class="tag empty">Empty, ready to randomize</span>')}`;
+      ${s.randomized ? `<span class="tag rando">Randomized · ${s.seed}${s.exists ? '' : ' · start a New Game'}</span>` : (s.exists ? '<span class="tag locked">Regular save, can\'t be randomized</span>' : '<span class="tag empty">Empty, ready to randomize</span>')}`;
     b.onclick = () => { if(locked) return; selSlot = s.index; renderSlots(); renderGo(); };
     box.appendChild(b);
   });

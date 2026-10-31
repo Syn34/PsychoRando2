@@ -68,6 +68,10 @@ func ListSlots(saveDir, modDir string) ([]SaveSlot, error) {
 			s.Randomized = true
 			s.Seed = seed
 			s.Unplayed = s.Exists && SlotUntouched(saveDir, modDir, i)
+			if !s.Exists && fileExists(startHashPath(modDir, i)) {
+				// its starting save was deleted: the old seed is unused, the slot is empty
+				s.Randomized, s.Seed = false, ""
+			}
 		}
 		if newest != "" {
 			if b, err := os.ReadFile(newest); err == nil {

@@ -118,3 +118,23 @@ func TestWriteStartingSave(t *testing.T) {
 		t.Fatal("removed a played save")
 	}
 }
+
+func TestDeletedStartShowsEmpty(t *testing.T) {
+	saves, mod := t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(mod, "seeds"), 0o755)
+	os.WriteFile(filepath.Join(mod, "seeds", "slot_0.lua"), []byte(`local seed = { version = 1, seed = "Old", slot = 0`), 0o644)
+	tpl, _ := MotherlobeTemplate()
+	WriteStartingSave(saves, t.TempDir(), 0, tpl)
+	RecordStartingSave(mod, 0, tpl)
+	sl, _ := ListSlots(saves, mod)
+	if !sl[0].Randomized || !sl[0].Unplayed || sl[0].Resumes == "" {
+		t.Fatalf("fresh start: %+v", sl[0])
+	}
+	for _, f := range slotFiles(saves, 0) {
+		os.Remove(f)
+	}
+	sl, _ = ListSlots(saves, mod)
+	if sl[0].Randomized || sl[0].Exists {
+		t.Fatalf("deleted start still shown as randomized: %+v", sl[0])
+	}
+}
